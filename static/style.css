@@ -182,9 +182,9 @@ h3 {
     font-weight: 600;
 }
 
-.badge-routable { background: rgba(158, 206, 106, 0.2); color: var(--success); }
+.badge-routable, .badge-up { background: rgba(158, 206, 106, 0.2); color: var(--success); }
 .badge-carrier { background: rgba(224, 175, 104, 0.2); color: var(--warning); }
-.badge-off { background: rgba(247, 118, 142, 0.2); color: var(--error); }
+.badge-off, .badge-down { background: rgba(247, 118, 142, 0.2); color: var(--error); }
 
 /* Buttons */
 

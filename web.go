@@ -52,12 +52,6 @@ func NewHandler(apiURL, authToken string) http.Handler {
 	}
 
 	funcMap := template.FuncMap{
-		"derefBool": func(b *bool) bool {
-			if b == nil {
-				return false
-			}
-			return *b
-		},
 		"formatUptime": formatUptime,
 	}
 

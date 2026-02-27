@@ -175,8 +175,8 @@ func TestUpdatePage_PartialAPIFailure(t *testing.T) {
 	}
 	body := w.Body.String()
 	// Pending count should render even when logs fail.
-	if !strings.Contains(body, "1") {
-		t.Fatal("pending count should render with partial failure")
+	if !strings.Contains(body, "Pending Updates") {
+		t.Fatal("pending updates section should render with partial failure")
 	}
 	if !strings.Contains(body, "0 3 * * *") {
 		t.Fatal("config should render with partial failure")
