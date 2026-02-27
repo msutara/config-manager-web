@@ -243,7 +243,7 @@ func TestUpdatePage_RendersWithAPIError(t *testing.T) {
 	if w.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", w.Code)
 	}
-	if !strings.Contains(w.Body.String(), "Failed to load update status") {
+	if !strings.Contains(w.Body.String(), "Failed to load pending updates") {
 		t.Fatal("should show error when API unreachable")
 	}
 }
@@ -260,5 +260,33 @@ func TestNetworkPage_RendersWithAPIError(t *testing.T) {
 	}
 	if !strings.Contains(w.Body.String(), "Failed to load network status") {
 		t.Fatal("should show error when API unreachable")
+	}
+}
+
+// ---------- formatUptime tests ----------
+
+func TestFormatUptime(t *testing.T) {
+	tests := []struct {
+		seconds int
+		want    string
+	}{
+		{0, "just started"},
+		{-1, "just started"},
+		{30, "0m"},
+		{60, "1m"},
+		{90, "1m"},
+		{3600, "1h 0m"},
+		{3661, "1h 1m"},
+		{7200, "2h 0m"},
+		{86400, "1d 0h 0m"},
+		{90061, "1d 1h 1m"},
+		{191400, "2d 5h 10m"},
+		{604800, "7d 0h 0m"},
+	}
+	for _, tt := range tests {
+		got := formatUptime(tt.seconds)
+		if got != tt.want {
+			t.Errorf("formatUptime(%d) = %q, want %q", tt.seconds, got, tt.want)
+		}
 	}
 }

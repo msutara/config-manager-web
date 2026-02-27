@@ -11,20 +11,20 @@
 <div class="card-grid">
     <div class="card">
         <h3>Connectivity</h3>
-        <p class="value {{ if .Status.Online }}status-ok{{ else }}status-error{{ end }}">
-            {{ if .Status.Online }}Online{{ else }}Offline{{ end }}
+        <p class="value {{ if .Status.InternetReachable }}status-ok{{ else }}status-error{{ end }}">
+            {{ if .Status.InternetReachable }}Online{{ else }}Offline{{ end }}
         </p>
     </div>
     <div class="card">
         <h3>DNS</h3>
-        <p class="value {{ if .Status.DNSWorking }}status-ok{{ else }}status-error{{ end }}">
-            {{ if .Status.DNSWorking }}Working{{ else }}Not working{{ end }}
+        <p class="value {{ if .Status.DNSReachable }}status-ok{{ else }}status-error{{ end }}">
+            {{ if .Status.DNSReachable }}Working{{ else }}Not working{{ end }}
         </p>
     </div>
-    {{ if .Status.PublicIP }}
+    {{ if .Status.DefaultGateway }}
     <div class="card">
-        <h3>Public IP</h3>
-        <p class="value">{{ .Status.PublicIP }}</p>
+        <h3>Default Gateway</h3>
+        <p class="value">{{ .Status.DefaultGateway }}</p>
     </div>
     {{ end }}
 </div>
@@ -39,20 +39,18 @@
     <thead>
         <tr>
             <th>Name</th>
-            <th>Type</th>
+            <th>MAC</th>
             <th>State</th>
-            <th>Address</th>
-            <th>Gateway</th>
+            <th>IP</th>
         </tr>
     </thead>
     <tbody>
         {{ range .Ifaces }}
         <tr>
             <td>{{ .Name }}</td>
-            <td>{{ .Type }}</td>
+            <td>{{ .MAC }}</td>
             <td><span class="badge badge-{{ .State }}">{{ .State }}</span></td>
-            <td>{{ .Address }}</td>
-            <td>{{ .Gateway }}</td>
+            <td>{{ .IP }}</td>
         </tr>
         {{ end }}
     </tbody>
@@ -67,7 +65,7 @@
     <table class="info-table">
         <tr>
             <td>Servers</td>
-            <td>{{ range .DNS.Servers }}{{ . }} {{ end }}</td>
+            <td>{{ range .DNS.Nameservers }}{{ . }} {{ end }}</td>
         </tr>
         {{ if .DNS.Search }}
         <tr>

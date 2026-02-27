@@ -26,17 +26,23 @@ func (h *Handler) handleDashboard(w http.ResponseWriter, r *http.Request) {
 // handleUpdate renders the update manager page.
 func (h *Handler) handleUpdate(w http.ResponseWriter, r *http.Request) {
 	var (
-		status    UpdateStatus
+		pending   []PendingUpdate
+		runStatus RunStatus
 		config    UpdateConfig
 		statusErr error
+		logsErr   error
 		configErr error
 	)
 
 	var wg sync.WaitGroup
-	wg.Add(2)
+	wg.Add(3)
 	go func() {
 		defer wg.Done()
-		statusErr = h.client.get(r.Context(), "/api/v1/plugins/update/status", &status)
+		statusErr = h.client.get(r.Context(), "/api/v1/plugins/update/status", &pending)
+	}()
+	go func() {
+		defer wg.Done()
+		logsErr = h.client.get(r.Context(), "/api/v1/plugins/update/logs", &runStatus)
 	}()
 	go func() {
 		defer wg.Done()
@@ -45,18 +51,33 @@ func (h *Handler) handleUpdate(w http.ResponseWriter, r *http.Request) {
 	wg.Wait()
 
 	if statusErr != nil {
-		slog.Error("web: failed to fetch update status", "error", statusErr)
+		slog.Error("web: failed to fetch pending updates", "error", statusErr)
+	}
+	if logsErr != nil {
+		slog.Error("web: failed to fetch update logs", "error", logsErr)
 	}
 	if configErr != nil {
 		slog.Error("web: failed to fetch update config", "error", configErr)
 	}
 
+	// Compute counts from the pending list.
+	securityCount := 0
+	for _, p := range pending {
+		if p.Security {
+			securityCount++
+		}
+	}
+
 	data := map[string]any{
-		"Page":      "update",
-		"Status":    status,
-		"StatusErr": statusErr,
-		"Config":    config,
-		"ConfigErr": configErr,
+		"Page":          "update",
+		"Pending":       pending,
+		"PendingCount":  len(pending),
+		"SecurityCount": securityCount,
+		"RunStatus":     runStatus,
+		"StatusErr":     statusErr,
+		"LogsErr":       logsErr,
+		"Config":        config,
+		"ConfigErr":     configErr,
 	}
 	h.render(w, "update.html", data)
 }

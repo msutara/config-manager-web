@@ -18,12 +18,16 @@
         <p class="value">{{ .Node.OS }}</p>
     </div>
     <div class="card">
+        <h3>Kernel</h3>
+        <p class="value">{{ .Node.Kernel }}</p>
+    </div>
+    <div class="card">
         <h3>Architecture</h3>
         <p class="value">{{ .Node.Arch }}</p>
     </div>
     <div class="card" hx-get="/" hx-trigger="every 30s" hx-select=".uptime-value" hx-target=".uptime-value" hx-swap="outerHTML">
         <h3>Uptime</h3>
-        <p class="value uptime-value">{{ .Node.Uptime }}</p>
+        <p class="value uptime-value">{{ formatUptime .Node.UptimeSeconds }}</p>
     </div>
 </div>
 {{ end }}
