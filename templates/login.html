@@ -1,0 +1,26 @@
+{{ define "login.html" }}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Config Manager - Login</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body class="login-body">
+    <div class="login-card">
+        <h1>Config Manager</h1>
+        <p>Enter your access token to continue.</p>
+        {{ if .Error }}
+        <div class="alert alert-error">Invalid token. Please try again.</div>
+        {{ end }}
+        <form method="post" action="/auth/login">
+            <label for="token">Access Token</label>
+            <input type="password" id="token" name="token" required autofocus
+                   placeholder="Bearer token">
+            <button type="submit" class="btn btn-primary">Login</button>
+        </form>
+    </div>
+</body>
+</html>
+{{ end }}

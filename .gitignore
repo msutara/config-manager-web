@@ -1,0 +1,11 @@
+# Build artifacts
+build/
+*.exe
+
+# Go
+vendor/
+
+# IDE
+.idea/
+.vscode/
+*.swp

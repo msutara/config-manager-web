@@ -1,0 +1,81 @@
+{{ define "page" }}
+{{ template "layout" . }}
+{{ end }}
+
+{{ define "content" }}
+<h2>Network</h2>
+
+{{ if .StatusErr }}
+<div class="alert alert-error">Failed to load network status: {{ .StatusErr }}</div>
+{{ else }}
+<div class="card-grid">
+    <div class="card">
+        <h3>Connectivity</h3>
+        <p class="value {{ if .Status.Online }}status-ok{{ else }}status-error{{ end }}">
+            {{ if .Status.Online }}Online{{ else }}Offline{{ end }}
+        </p>
+    </div>
+    <div class="card">
+        <h3>DNS</h3>
+        <p class="value {{ if .Status.DNSWorking }}status-ok{{ else }}status-error{{ end }}">
+            {{ if .Status.DNSWorking }}Working{{ else }}Not working{{ end }}
+        </p>
+    </div>
+    {{ if .Status.PublicIP }}
+    <div class="card">
+        <h3>Public IP</h3>
+        <p class="value">{{ .Status.PublicIP }}</p>
+    </div>
+    {{ end }}
+</div>
+{{ end }}
+
+<h3>Interfaces</h3>
+
+{{ if .IfaceErr }}
+<div class="alert alert-error">Failed to load interfaces: {{ .IfaceErr }}</div>
+{{ else if .Ifaces }}
+<table class="data-table">
+    <thead>
+        <tr>
+            <th>Name</th>
+            <th>Type</th>
+            <th>State</th>
+            <th>Address</th>
+            <th>Gateway</th>
+        </tr>
+    </thead>
+    <tbody>
+        {{ range .Ifaces }}
+        <tr>
+            <td>{{ .Name }}</td>
+            <td>{{ .Type }}</td>
+            <td><span class="badge badge-{{ .State }}">{{ .State }}</span></td>
+            <td>{{ .Address }}</td>
+            <td>{{ .Gateway }}</td>
+        </tr>
+        {{ end }}
+    </tbody>
+</table>
+{{ else }}
+<p>No interfaces found.</p>
+{{ end }}
+
+{{ if not .DNSErr }}
+<h3>DNS Configuration</h3>
+<div class="card">
+    <table class="info-table">
+        <tr>
+            <td>Servers</td>
+            <td>{{ range .DNS.Servers }}{{ . }} {{ end }}</td>
+        </tr>
+        {{ if .DNS.Search }}
+        <tr>
+            <td>Search Domains</td>
+            <td>{{ range .DNS.Search }}{{ . }} {{ end }}</td>
+        </tr>
+        {{ end }}
+    </table>
+</div>
+{{ end }}
+{{ end }}
