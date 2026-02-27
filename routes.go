@@ -84,13 +84,15 @@ func (h *Handler) handleUpdateRun(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
 		// html.EscapeString on error message for defense in depth.
 		safeErr := html.EscapeString(err.Error())
-		w.Write([]byte(`<div class="alert alert-error">Failed to start ` +
+		//nolint:errcheck // HTTP response write — no recovery possible
+		_, _ = w.Write([]byte(`<div class="alert alert-error">Failed to start ` +
 			updateType + ` update: ` + safeErr + `</div>`))
 		return
 	}
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	w.Write([]byte(`<div class="alert alert-success">` +
+	//nolint:errcheck // HTTP response write — no recovery possible
+	_, _ = w.Write([]byte(`<div class="alert alert-success">` +
 		updateType + ` update started successfully</div>`))
 }
 

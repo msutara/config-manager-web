@@ -43,7 +43,7 @@ func (c *apiClient) get(ctx context.Context, path string, dst any) error {
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 1024)) //nolint:errcheck // best-effort error detail
 		return fmt.Errorf("api %s returned %d: %s", path, resp.StatusCode, body)
 	}
 
@@ -52,6 +52,7 @@ func (c *apiClient) get(ctx context.Context, path string, dst any) error {
 			return fmt.Errorf("decode response: %w", err)
 		}
 	}
+
 	return nil
 }
 
@@ -61,6 +62,7 @@ func (c *apiClient) post(ctx context.Context, path string, dst any) error {
 	if err != nil {
 		return fmt.Errorf("build request: %w", err)
 	}
+
 	if c.token != "" {
 		req.Header.Set("Authorization", "Bearer "+c.token)
 	}
@@ -73,7 +75,7 @@ func (c *apiClient) post(ctx context.Context, path string, dst any) error {
 
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusAccepted &&
 		resp.StatusCode != http.StatusNoContent {
-		body, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 1024)) //nolint:errcheck // best-effort error detail
 		return fmt.Errorf("api %s returned %d: %s", path, resp.StatusCode, body)
 	}
 
@@ -82,6 +84,7 @@ func (c *apiClient) post(ctx context.Context, path string, dst any) error {
 			return fmt.Errorf("decode response: %w", err)
 		}
 	}
+
 	return nil
 }
 
