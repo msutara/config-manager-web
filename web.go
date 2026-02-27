@@ -6,6 +6,7 @@ package web
 import (
 	"bytes"
 	"crypto/subtle"
+	"fmt"
 	"html/template"
 	"io/fs"
 	"log/slog"
@@ -21,6 +22,23 @@ type Handler struct {
 	authToken string
 	templates map[string]*template.Template
 	client    *apiClient
+}
+
+// formatUptime converts seconds to a human-readable "Xd Xh Xm" string.
+func formatUptime(seconds int) string {
+	if seconds <= 0 {
+		return "just started"
+	}
+	d := seconds / 86400
+	h := (seconds % 86400) / 3600
+	m := (seconds % 3600) / 60
+	if d > 0 {
+		return fmt.Sprintf("%dd %dh %dm", d, h, m)
+	}
+	if h > 0 {
+		return fmt.Sprintf("%dh %dm", h, m)
+	}
+	return fmt.Sprintf("%dm", m)
 }
 
 // NewHandler creates a web UI handler that renders pages and proxies actions
@@ -40,6 +58,7 @@ func NewHandler(apiURL, authToken string) http.Handler {
 			}
 			return *b
 		},
+		"formatUptime": formatUptime,
 	}
 
 	mustRead := func(name string) []byte {

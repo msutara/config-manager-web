@@ -16,27 +16,36 @@ func mockAPI(t *testing.T) *httptest.Server {
 
 	mux.HandleFunc("/api/v1/node", func(w http.ResponseWriter, _ *http.Request) {
 		json.NewEncoder(w).Encode(NodeInfo{
-			Hostname: "test-node",
-			OS:       "Debian 12",
-			Arch:     "arm",
-			Uptime:   "2d 5h 30m",
+			Hostname:      "test-node",
+			OS:            "Debian 12",
+			Kernel:        "6.1.0",
+			Arch:          "arm",
+			UptimeSeconds: 191400,
 		})
 	})
 
 	mux.HandleFunc("/api/v1/plugins/update/status", func(w http.ResponseWriter, _ *http.Request) {
-		json.NewEncoder(w).Encode(UpdateStatus{
-			Running:       false,
-			LastRun:       "2026-02-27T10:00:00Z",
-			LastResult:    "success",
-			PendingCount:  5,
-			SecurityCount: 2,
+		json.NewEncoder(w).Encode([]PendingUpdate{
+			{Package: "openssl", CurrentVersion: "3.0.1", NewVersion: "3.0.2", Security: true},
+			{Package: "curl", CurrentVersion: "7.88.0", NewVersion: "7.88.1", Security: true},
+			{Package: "vim", CurrentVersion: "9.0.1", NewVersion: "9.0.2", Security: false},
+			{Package: "git", CurrentVersion: "2.39.0", NewVersion: "2.39.1", Security: false},
+			{Package: "wget", CurrentVersion: "1.21.3", NewVersion: "1.21.4", Security: false},
+		})
+	})
+
+	mux.HandleFunc("/api/v1/plugins/update/logs", func(w http.ResponseWriter, _ *http.Request) {
+		json.NewEncoder(w).Encode(RunStatus{
+			Type:      "full",
+			Status:    "completed",
+			StartedAt: "2026-02-27T10:00:00Z",
+			Packages:  3,
 		})
 	})
 
 	mux.HandleFunc("/api/v1/plugins/update/config", func(w http.ResponseWriter, _ *http.Request) {
-		avail := true
 		json.NewEncoder(w).Encode(UpdateConfig{
-			SecurityAvailable:  &avail,
+			SecurityAvailable:  true,
 			AutoSecurityUpdate: true,
 			Schedule:           "0 3 * * *",
 		})
@@ -49,23 +58,23 @@ func mockAPI(t *testing.T) *httptest.Server {
 
 	mux.HandleFunc("/api/v1/plugins/network/interfaces", func(w http.ResponseWriter, _ *http.Request) {
 		json.NewEncoder(w).Encode([]NetworkInterface{
-			{Name: "eth0", Type: "ether", State: "routable", Address: "192.168.1.10/24", Gateway: "192.168.1.1"},
-			{Name: "wlan0", Type: "wlan", State: "off"},
+			{Name: "eth0", MAC: "aa:bb:cc:dd:ee:ff", State: "up", IP: "192.168.1.10/24"},
+			{Name: "wlan0", MAC: "11:22:33:44:55:66", State: "down"},
 		})
 	})
 
 	mux.HandleFunc("/api/v1/plugins/network/status", func(w http.ResponseWriter, _ *http.Request) {
 		json.NewEncoder(w).Encode(NetworkStatus{
-			Online:     true,
-			DNSWorking: true,
-			PublicIP:   "1.2.3.4",
+			InternetReachable: true,
+			DNSReachable:      true,
+			DefaultGateway:    "192.168.1.1",
 		})
 	})
 
 	mux.HandleFunc("/api/v1/plugins/network/dns", func(w http.ResponseWriter, _ *http.Request) {
 		json.NewEncoder(w).Encode(DNSConfig{
-			Servers: []string{"1.1.1.1", "8.8.8.8"},
-			Search:  []string{"local"},
+			Nameservers: []string{"1.1.1.1", "8.8.8.8"},
+			Search:      []string{"local"},
 		})
 	})
 
@@ -85,7 +94,7 @@ func TestDashboard_WithMockAPI(t *testing.T) {
 		t.Fatalf("expected 200, got %d", w.Code)
 	}
 	body := w.Body.String()
-	for _, want := range []string{"test-node", "Debian 12", "arm", "2d 5h 30m"} {
+	for _, want := range []string{"test-node", "Debian 12", "arm", "2d 5h 10m"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("dashboard should contain %q", want)
 		}
@@ -105,7 +114,7 @@ func TestUpdatePage_WithMockAPI(t *testing.T) {
 		t.Fatalf("expected 200, got %d", w.Code)
 	}
 	body := w.Body.String()
-	for _, want := range []string{"Idle", "5", "2", "Security Update"} {
+	for _, want := range []string{"5", "2", "Security Update", "full", "completed"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("update page should contain %q", want)
 		}
@@ -116,10 +125,13 @@ func TestUpdatePage_SecurityHiddenWhenUnavailable(t *testing.T) {
 	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/api/v1/plugins/update/status":
-			json.NewEncoder(w).Encode(UpdateStatus{PendingCount: 3})
+			json.NewEncoder(w).Encode([]PendingUpdate{
+				{Package: "vim", CurrentVersion: "9.0.1", NewVersion: "9.0.2"},
+			})
+		case "/api/v1/plugins/update/logs":
+			json.NewEncoder(w).Encode(RunStatus{})
 		case "/api/v1/plugins/update/config":
-			unavail := false
-			json.NewEncoder(w).Encode(UpdateConfig{SecurityAvailable: &unavail})
+			json.NewEncoder(w).Encode(UpdateConfig{SecurityAvailable: false})
 		}
 	}))
 	defer api.Close()
@@ -134,6 +146,40 @@ func TestUpdatePage_SecurityHiddenWhenUnavailable(t *testing.T) {
 	}
 	if strings.Contains(w.Body.String(), "Run Security Update") {
 		t.Fatal("security update button should be hidden when unavailable")
+	}
+}
+
+func TestUpdatePage_PartialAPIFailure(t *testing.T) {
+	// /logs fails but /status and /config succeed — page should still render pending counts.
+	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/v1/plugins/update/status":
+			json.NewEncoder(w).Encode([]PendingUpdate{
+				{Package: "vim", CurrentVersion: "9.0.1", NewVersion: "9.0.2"},
+			})
+		case "/api/v1/plugins/update/logs":
+			w.WriteHeader(http.StatusInternalServerError)
+		case "/api/v1/plugins/update/config":
+			json.NewEncoder(w).Encode(UpdateConfig{SecurityAvailable: true, Schedule: "0 3 * * *"})
+		}
+	}))
+	defer api.Close()
+
+	h := newTestHandler(t, api.URL, "")
+	req := httptest.NewRequest(http.MethodGet, "/update", nil)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", w.Code)
+	}
+	body := w.Body.String()
+	// Pending count should render even when logs fail.
+	if !strings.Contains(body, "1") {
+		t.Fatal("pending count should render with partial failure")
+	}
+	if !strings.Contains(body, "0 3 * * *") {
+		t.Fatal("config should render with partial failure")
 	}
 }
 

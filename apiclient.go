@@ -90,46 +90,55 @@ func (c *apiClient) post(ctx context.Context, path string, dst any) error {
 
 // NodeInfo holds the response from GET /api/v1/node.
 type NodeInfo struct {
-	Hostname string `json:"hostname"`
-	OS       string `json:"os"`
-	Arch     string `json:"arch"`
-	Uptime   string `json:"uptime"`
+	Hostname      string `json:"hostname"`
+	OS            string `json:"os"`
+	Kernel        string `json:"kernel"`
+	Arch          string `json:"arch"`
+	UptimeSeconds int    `json:"uptime_seconds"`
 }
 
-// UpdateStatus holds the response from GET /api/v1/plugins/update/status.
-type UpdateStatus struct {
-	Running       bool   `json:"running"`
-	LastRun       string `json:"last_run,omitempty"`
-	LastResult    string `json:"last_result,omitempty"`
-	PendingCount  int    `json:"pending_count"`
-	SecurityCount int    `json:"security_count"`
+// PendingUpdate holds one entry from GET /api/v1/plugins/update/status.
+type PendingUpdate struct {
+	Package        string `json:"package"`
+	CurrentVersion string `json:"current_version"`
+	NewVersion     string `json:"new_version"`
+	Security       bool   `json:"security"`
+}
+
+// RunStatus holds the response from GET /api/v1/plugins/update/logs.
+type RunStatus struct {
+	Type      string `json:"type"`
+	Status    string `json:"status"`
+	StartedAt string `json:"started_at,omitempty"`
+	Duration  string `json:"duration,omitempty"`
+	Packages  int    `json:"packages"`
+	Log       string `json:"log,omitempty"`
 }
 
 // UpdateConfig holds the response from GET /api/v1/plugins/update/config.
 type UpdateConfig struct {
-	SecurityAvailable  *bool  `json:"security_available"`
+	SecurityAvailable  bool   `json:"security_available"`
 	AutoSecurityUpdate bool   `json:"auto_security_updates"`
 	Schedule           string `json:"schedule,omitempty"`
 }
 
 // NetworkInterface holds one entry from GET /api/v1/plugins/network/interfaces.
 type NetworkInterface struct {
-	Name    string `json:"name"`
-	Type    string `json:"type"`
-	State   string `json:"state"`
-	Address string `json:"address,omitempty"`
-	Gateway string `json:"gateway,omitempty"`
+	Name  string `json:"name"`
+	MAC   string `json:"mac"`
+	IP    string `json:"ip,omitempty"`
+	State string `json:"state"`
 }
 
 // NetworkStatus holds the response from GET /api/v1/plugins/network/status.
 type NetworkStatus struct {
-	Online     bool   `json:"online"`
-	DNSWorking bool   `json:"dns_working"`
-	PublicIP   string `json:"public_ip,omitempty"`
+	DefaultGateway    string `json:"default_gateway,omitempty"`
+	DNSReachable      bool   `json:"dns_reachable"`
+	InternetReachable bool   `json:"internet_reachable"`
 }
 
 // DNSConfig holds the response from GET /api/v1/plugins/network/dns.
 type DNSConfig struct {
-	Servers []string `json:"servers"`
-	Search  []string `json:"search,omitempty"`
+	Nameservers []string `json:"nameservers"`
+	Search      []string `json:"search,omitempty"`
 }
