@@ -51,7 +51,7 @@ func (h *Handler) handleUpdate(w http.ResponseWriter, r *http.Request) {
 	wg.Wait()
 
 	if statusErr != nil {
-		slog.Error("web: failed to fetch update status", "error", statusErr)
+		slog.Error("web: failed to fetch pending updates", "error", statusErr)
 	}
 	if logsErr != nil {
 		slog.Error("web: failed to fetch update logs", "error", logsErr)
