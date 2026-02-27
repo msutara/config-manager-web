@@ -42,25 +42,34 @@ func NewHandler(apiURL, authToken string) http.Handler {
 		},
 	}
 
+	mustRead := func(name string) []byte {
+		b, err := fs.ReadFile(templateFS, "templates/"+name)
+		if err != nil {
+			panic("read " + name + ": " + err.Error())
+		}
+		return b
+	}
+
 	// Parse each page template with its own copy of the layout to avoid
 	// "content" block name collisions between pages.
-	layoutBytes, _ := fs.ReadFile(templateFS, "templates/layout.html")
+	layoutBytes := mustRead("layout.html")
 	h.templates = make(map[string]*template.Template)
 	for _, page := range []string{"dashboard.html", "update.html", "network.html"} {
 		t := template.Must(template.New("").Funcs(funcMap).Parse(string(layoutBytes)))
-		pageBytes, _ := fs.ReadFile(templateFS, "templates/"+page)
-		template.Must(t.Parse(string(pageBytes)))
+		template.Must(t.Parse(string(mustRead(page))))
 		h.templates[page] = t
 	}
 	// Login is standalone (no layout).
-	loginBytes, _ := fs.ReadFile(templateFS, "templates/login.html")
 	h.templates["login.html"] = template.Must(
-		template.New("").Funcs(funcMap).Parse(string(loginBytes)))
+		template.New("").Funcs(funcMap).Parse(string(mustRead("login.html"))))
 
 	h.router = chi.NewRouter()
 
 	// Static assets — no auth required.
-	staticSub, _ := fs.Sub(staticFS, "static")
+	staticSub, err := fs.Sub(staticFS, "static")
+	if err != nil {
+		panic("fs.Sub static: " + err.Error())
+	}
 	h.router.Handle("/static/*", http.StripPrefix("/static/",
 		http.FileServer(http.FS(staticSub))))
 
@@ -117,5 +126,5 @@ func (h *Handler) render(w http.ResponseWriter, name string, data any) {
 	}
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	w.Write(buf.Bytes())
+	_, _ = w.Write(buf.Bytes()) //nolint:errcheck // HTTP response write
 }
