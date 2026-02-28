@@ -333,10 +333,8 @@ func (h *Handler) handleUpdateRun(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	//nolint:errcheck // HTTP response write — no recovery possible
-	_, _ = w.Write([]byte(`<div class="alert alert-success">` +
-		updateType + ` update started successfully</div>`))
+	// Tell HTMX to do a full page refresh so the Last Run status tile updates.
+	w.Header().Set("HX-Refresh", "true")
 }
 
 // ---------- Network plugin ----------

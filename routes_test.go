@@ -919,8 +919,8 @@ func TestUpdateRun_Success(t *testing.T) {
 	if w.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", w.Code)
 	}
-	if !strings.Contains(w.Body.String(), "started successfully") {
-		t.Fatal("should show success message")
+	if w.Header().Get("HX-Refresh") != "true" {
+		t.Fatal("should set HX-Refresh header on success")
 	}
 }
 
@@ -971,8 +971,8 @@ func TestUpdateRun_SecurityType(t *testing.T) {
 	if !strings.Contains(gotBody, `"type":"security"`) {
 		t.Fatalf("API body = %q, want JSON with type:security", gotBody)
 	}
-	if !strings.Contains(w.Body.String(), "security") {
-		t.Fatal("response should mention security")
+	if w.Header().Get("HX-Refresh") != "true" {
+		t.Fatal("should set HX-Refresh header on success")
 	}
 }
 
@@ -1006,8 +1006,8 @@ func TestUpdateRun_DefaultType(t *testing.T) {
 	if !strings.Contains(gotBody, `"type":"full"`) {
 		t.Fatalf("API body = %q, want JSON with type:full", gotBody)
 	}
-	if !strings.Contains(w.Body.String(), "full") {
-		t.Fatal("response should mention full")
+	if w.Header().Get("HX-Refresh") != "true" {
+		t.Fatal("should set HX-Refresh header on success")
 	}
 }
 
@@ -1027,8 +1027,8 @@ func TestUpdateRun_XSSSanitized(t *testing.T) {
 	if strings.Contains(w.Body.String(), "<script>") {
 		t.Fatal("XSS payload should not appear in response")
 	}
-	if !strings.Contains(w.Body.String(), "full") {
-		t.Fatal("invalid type should default to full")
+	if w.Header().Get("HX-Refresh") != "true" {
+		t.Fatal("invalid type should default to full and set HX-Refresh")
 	}
 }
 
