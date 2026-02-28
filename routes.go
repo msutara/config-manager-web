@@ -11,6 +11,7 @@ import (
 	"path"
 	"strings"
 	"sync"
+	"unicode"
 
 	"github.com/go-chi/chi/v5"
 )
@@ -48,9 +49,9 @@ func cleanPluginPath(routePrefix, epPath string) string {
 	if strings.Contains(decoded, "%") {
 		return ""
 	}
-	// Reject control characters (NUL, newlines, etc.).
+	// Reject control characters (NUL, newlines, C1, etc.).
 	for _, r := range decoded {
-		if r < 0x20 || r == 0x7F {
+		if unicode.IsControl(r) {
 			return ""
 		}
 	}
@@ -66,25 +67,33 @@ func cleanPluginPath(routePrefix, epPath string) string {
 	return full
 }
 
+// lookupPlugin fetches the plugin registry and returns the named plugin, or
+// nil if not found. The full plugin list is also returned for sidebar rendering.
+// Returns an error only when the registry fetch itself fails.
+func (h *Handler) lookupPlugin(r *http.Request, name string) (*PluginInfo, []PluginInfo, error) {
+	plugins, err := h.fetchPlugins(r)
+	if err != nil {
+		return nil, nil, err
+	}
+	for i := range plugins {
+		if plugins[i].Name == name {
+			return &plugins[i], plugins, nil
+		}
+	}
+	return nil, plugins, nil
+}
+
 // handleGenericPlugin renders a generic page for plugins without a custom
 // template. It fetches all GET endpoints concurrently and lists POST
 // endpoints as server-proxied action buttons.
 func (h *Handler) handleGenericPlugin(w http.ResponseWriter, r *http.Request) {
 	name := chi.URLParam(r, "plugin")
 
-	// Find the plugin in the registry.
-	plugins, fetchErr := h.fetchPlugins(r)
-	if fetchErr != nil {
-		slog.Error("web: plugin registry unavailable", "error", fetchErr)
+	found, plugins, err := h.lookupPlugin(r, name)
+	if err != nil {
+		slog.Error("web: plugin registry unavailable", "error", err)
 		http.Error(w, "Plugin registry unavailable", http.StatusBadGateway)
 		return
-	}
-	var found *PluginInfo
-	for i := range plugins {
-		if plugins[i].Name == name {
-			found = &plugins[i]
-			break
-		}
 	}
 	if found == nil {
 		http.NotFound(w, r)
@@ -99,10 +108,16 @@ func (h *Handler) handleGenericPlugin(w http.ResponseWriter, r *http.Request) {
 		case http.MethodGet:
 			getEndpoints = append(getEndpoints, ep)
 		case http.MethodPost:
-			actionPath := ep.Path
-			if actionPath == "" {
+			if ep.Path == "" {
 				continue // skip empty-path endpoints
 			}
+			// Validate POST paths against traversal before exposing in template
+			// URLs — the browser normalises /../ before sending, which could
+			// redirect the request to an unintended route.
+			if cleanPluginPath(found.RoutePrefix, ep.Path) == "" {
+				continue
+			}
+			actionPath := ep.Path
 			if !strings.HasPrefix(actionPath, "/") {
 				actionPath = "/" + actionPath
 			}
@@ -146,7 +161,7 @@ func (h *Handler) handleGenericPlugin(w http.ResponseWriter, r *http.Request) {
 
 	data := map[string]any{
 		"Page":         name,
-		"Plugins":      plugins, // reuse already-fetched list
+		"Plugins":      plugins,
 		"Plugin":       found,
 		"EndpointData": results,
 		"Actions":      actions,
@@ -161,18 +176,11 @@ func (h *Handler) handleGenericAction(w http.ResponseWriter, r *http.Request) {
 	name := chi.URLParam(r, "plugin")
 	action := chi.URLParam(r, "*") // wildcard captures the full remainder
 
-	plugins, fetchErr := h.fetchPlugins(r)
+	found, _, fetchErr := h.lookupPlugin(r, name)
 	if fetchErr != nil {
 		slog.Error("web: plugin registry unavailable", "error", fetchErr)
 		http.Error(w, "Plugin registry unavailable", http.StatusBadGateway)
 		return
-	}
-	var found *PluginInfo
-	for i := range plugins {
-		if plugins[i].Name == name {
-			found = &plugins[i]
-			break
-		}
 	}
 	if found == nil {
 		http.NotFound(w, r)

@@ -564,6 +564,126 @@ func TestGenericAction_MultiSegmentPath(t *testing.T) {
 	}
 }
 
+func TestGenericAction_PostAPIFailure(t *testing.T) {
+	mux := http.NewServeMux()
+
+	mux.HandleFunc("/api/v1/plugins", func(w http.ResponseWriter, _ *http.Request) {
+		json.NewEncoder(w).Encode([]PluginInfo{
+			{
+				Name: "firewall", Version: "0.1.0",
+				Description: "Firewall management",
+				RoutePrefix: "/api/v1/plugins/firewall",
+				Endpoints: []PluginEndpoint{
+					{Method: "POST", Path: "/reload", Description: "Reload rules"},
+				},
+			},
+		})
+	})
+
+	mux.HandleFunc("/api/v1/plugins/firewall/reload", func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+		w.Write([]byte(`{"error":"backend failed"}`))
+	})
+
+	api := httptest.NewServer(mux)
+	defer api.Close()
+
+	h := newTestHandler(t, api.URL, "")
+	req := httptest.NewRequest(http.MethodPost, "/firewall/actions/reload", nil)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	if w.Code != http.StatusInternalServerError {
+		t.Fatalf("expected 500, got %d", w.Code)
+	}
+	if !strings.Contains(w.Body.String(), "Action failed") {
+		t.Error("should show action failed message")
+	}
+}
+
+func TestGenericPlugin_SkipsEmptyPathPOST(t *testing.T) {
+	mux := http.NewServeMux()
+
+	mux.HandleFunc("/api/v1/plugins", func(w http.ResponseWriter, _ *http.Request) {
+		json.NewEncoder(w).Encode([]PluginInfo{
+			{
+				Name: "firewall", Version: "0.1.0",
+				Description: "Firewall management",
+				RoutePrefix: "/api/v1/plugins/firewall",
+				Endpoints: []PluginEndpoint{
+					{Method: "GET", Path: "/rules", Description: "Active rules"},
+					{Method: "POST", Path: "", Description: "Empty path action"},
+					{Method: "POST", Path: "/reload", Description: "Reload rules"},
+				},
+			},
+		})
+	})
+
+	mux.HandleFunc("/api/v1/plugins/firewall/rules", func(w http.ResponseWriter, _ *http.Request) {
+		json.NewEncoder(w).Encode(map[string]string{"rules": "allow 22"})
+	})
+
+	api := httptest.NewServer(mux)
+	defer api.Close()
+
+	h := newTestHandler(t, api.URL, "")
+	req := httptest.NewRequest(http.MethodGet, "/firewall", nil)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", w.Code)
+	}
+	body := w.Body.String()
+	if !strings.Contains(body, "Reload rules") {
+		t.Error("valid POST action should appear")
+	}
+	if strings.Contains(body, "Empty path action") {
+		t.Error("empty-path POST should be skipped")
+	}
+}
+
+func TestGenericPlugin_SkipsTraversalPOSTPath(t *testing.T) {
+	mux := http.NewServeMux()
+
+	mux.HandleFunc("/api/v1/plugins", func(w http.ResponseWriter, _ *http.Request) {
+		json.NewEncoder(w).Encode([]PluginInfo{
+			{
+				Name: "firewall", Version: "0.1.0",
+				Description: "Firewall management",
+				RoutePrefix: "/api/v1/plugins/firewall",
+				Endpoints: []PluginEndpoint{
+					{Method: "POST", Path: "/../../../etc/shadow", Description: "Traversal attack"},
+					{Method: "POST", Path: "/reload", Description: "Reload rules"},
+				},
+			},
+		})
+	})
+
+	mux.HandleFunc("/api/v1/plugins/firewall/rules", func(w http.ResponseWriter, _ *http.Request) {
+		json.NewEncoder(w).Encode(map[string]string{})
+	})
+
+	api := httptest.NewServer(mux)
+	defer api.Close()
+
+	h := newTestHandler(t, api.URL, "")
+	req := httptest.NewRequest(http.MethodGet, "/firewall", nil)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", w.Code)
+	}
+	body := w.Body.String()
+	if strings.Contains(body, "Traversal attack") {
+		t.Error("traversal POST path should be skipped")
+	}
+	if !strings.Contains(body, "Reload rules") {
+		t.Error("valid POST action should still appear")
+	}
+}
+
 // ---------- Dashboard tests ----------
 
 func TestDashboard_WithMockAPI(t *testing.T) {
