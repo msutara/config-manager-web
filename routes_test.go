@@ -35,6 +35,14 @@ func mockAPI(t *testing.T) *httptest.Server {
 					{Method: "GET", Path: "/status", Description: "Connectivity status"},
 				},
 			},
+			{
+				Name: "firewall", Version: "0.1.0",
+				Description: "Firewall management",
+				RoutePrefix: "/api/v1/plugins/firewall",
+				Endpoints: []PluginEndpoint{
+					{Method: "GET", Path: "/rules", Description: "Active firewall rules"},
+				},
+			},
 		})
 	})
 
@@ -291,6 +299,9 @@ func TestSidebar_ShowsPluginNames(t *testing.T) {
 	}
 	if !strings.Contains(body, `href="/"`) {
 		t.Error("sidebar should contain link to dashboard")
+	}
+	if !strings.Contains(body, `href="/firewall"`) {
+		t.Error("sidebar should contain dynamic link to /firewall")
 	}
 }
 

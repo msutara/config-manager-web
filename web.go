@@ -12,6 +12,8 @@ import (
 	"log/slog"
 	"net/http"
 	"strings"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/go-chi/chi/v5"
 )
@@ -43,7 +45,7 @@ func formatUptime(seconds int) string {
 }
 
 // titleCase converts a hyphen-separated plugin name to Title Case with spaces.
-// Only operates on ASCII bytes (plugin names are constrained to [a-z0-9-]).
+// Uses rune-aware uppercasing to handle multi-byte UTF-8 safely.
 func titleCase(s string) string {
 	if s == "" {
 		return s
@@ -54,7 +56,8 @@ func titleCase(s string) string {
 		if p == "" {
 			continue
 		}
-		result = append(result, strings.ToUpper(p[:1])+p[1:])
+		r, size := utf8.DecodeRuneInString(p)
+		result = append(result, string(unicode.ToUpper(r))+p[size:])
 	}
 	return strings.Join(result, " ")
 }
