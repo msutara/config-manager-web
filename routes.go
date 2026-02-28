@@ -205,7 +205,7 @@ func (h *Handler) handleGenericAction(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	err := h.client.post(r.Context(), apiPath, nil)
+	err := h.client.post(r.Context(), apiPath, nil, nil)
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if err != nil {
 		slog.Error("web: generic plugin action failed",
@@ -312,11 +312,15 @@ func (h *Handler) handleUpdateRun(w http.ResponseWriter, r *http.Request) {
 	}
 
 	path := "/api/v1/plugins/update/run"
-	if updateType == "security" {
-		path = "/api/v1/plugins/update/run?type=security"
+	payload, err := json.Marshal(map[string]string{"type": updateType})
+	if err != nil {
+		slog.Error("web: failed to marshal update request", "error", err)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
 	}
+	body := bytes.NewReader(payload)
 
-	err := h.client.post(r.Context(), path, nil)
+	err = h.client.post(r.Context(), path, body, nil)
 	if err != nil {
 		slog.Error("web: failed to trigger update", "type", updateType, "error", err)
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")

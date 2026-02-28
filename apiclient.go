@@ -58,13 +58,16 @@ func (c *apiClient) get(ctx context.Context, path string, dst any) error {
 	return nil
 }
 
-// post performs an authenticated POST and decodes JSON into dst.
-func (c *apiClient) post(ctx context.Context, path string, dst any) error {
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+path, nil)
+// post performs an authenticated POST with an optional body and decodes JSON into dst.
+func (c *apiClient) post(ctx context.Context, path string, body io.Reader, dst any) error {
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+path, body)
 	if err != nil {
 		return fmt.Errorf("build request: %w", err)
 	}
 
+	if body != nil {
+		req.Header.Set("Content-Type", "application/json")
+	}
 	if c.token != "" {
 		req.Header.Set("Authorization", "Bearer "+c.token)
 	}
