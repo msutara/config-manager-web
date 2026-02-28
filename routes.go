@@ -100,7 +100,10 @@ func (h *Handler) handleGenericPlugin(w http.ResponseWriter, r *http.Request) {
 			getEndpoints = append(getEndpoints, ep)
 		case http.MethodPost:
 			actionPath := ep.Path
-			if actionPath != "" && !strings.HasPrefix(actionPath, "/") {
+			if actionPath == "" {
+				continue // skip empty-path endpoints
+			}
+			if !strings.HasPrefix(actionPath, "/") {
 				actionPath = "/" + actionPath
 			}
 			actions = append(actions, ActionInfo{
