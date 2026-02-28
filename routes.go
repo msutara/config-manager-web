@@ -33,7 +33,8 @@ type ActionInfo struct {
 
 // cleanPluginPath builds a safe API path from a route prefix and endpoint path,
 // rejecting path traversal (including percent-encoded sequences) and verifying
-// the result stays under the expected prefix.
+// the result stays under the expected prefix. routePrefix is trusted — it is
+// set by the plugin registry (server-controlled, not user input).
 func cleanPluginPath(routePrefix, epPath string) string {
 	prefix := strings.TrimRight(routePrefix, "/")
 	if prefix == "" {
@@ -148,13 +149,16 @@ func (h *Handler) handleGenericPlugin(w http.ResponseWriter, r *http.Request) {
 				results[idx].Error = fmt.Sprintf("Failed to fetch: %s", err)
 				return
 			}
-			// Pretty-print JSON for display; fall back to raw text.
+			// Pretty-print JSON for display. raw was decoded as JSON,
+			// so Indent errors are unexpected but handled defensively.
 			var buf bytes.Buffer
-			if json.Indent(&buf, raw, "", "  ") == nil {
-				results[idx].Data = buf.String()
-			} else {
+			if err := json.Indent(&buf, raw, "", "  "); err != nil {
+				slog.Error("web: failed to pretty-print plugin JSON",
+					"plugin", name, "path", ep.Path, "error", err)
 				results[idx].Data = string(raw)
+				return
 			}
+			results[idx].Data = buf.String()
 		}(i, ep)
 	}
 	wg.Wait()
