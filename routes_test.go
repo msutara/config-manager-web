@@ -326,8 +326,8 @@ func TestAPIClient_RedirectNotFollowed_Get(t *testing.T) {
 	}))
 	defer target.Close()
 
-	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		http.Redirect(w, &http.Request{}, target.URL, http.StatusFound)
+	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, target.URL, http.StatusFound)
 	}))
 	defer api.Close()
 
@@ -355,8 +355,8 @@ func TestAPIClient_RedirectNotFollowed_Post(t *testing.T) {
 	}))
 	defer target.Close()
 
-	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		http.Redirect(w, &http.Request{}, target.URL, http.StatusFound)
+	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, target.URL, http.StatusFound)
 	}))
 	defer api.Close()
 
