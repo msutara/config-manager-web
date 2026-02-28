@@ -3,6 +3,7 @@ package web
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -204,7 +205,7 @@ func TestAPIClient_PostSuccess(t *testing.T) {
 	defer api.Close()
 
 	c := newAPIClient(api.URL, "")
-	err := c.post(context.Background(), "/api/v1/plugins/update/run", nil)
+	err := c.post(context.Background(), "/api/v1/plugins/update/run", nil, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -236,7 +237,7 @@ func TestAPIClient_PostErrorStatus(t *testing.T) {
 	defer api.Close()
 
 	c := newAPIClient(api.URL, "")
-	err := c.post(context.Background(), "/fail", nil)
+	err := c.post(context.Background(), "/fail", nil, nil)
 	if err == nil {
 		t.Fatal("expected error for 500")
 	}
@@ -252,9 +253,46 @@ func TestAPIClient_Post204NoContent(t *testing.T) {
 	defer api.Close()
 
 	c := newAPIClient(api.URL, "")
-	err := c.post(context.Background(), "/ok", nil)
+	err := c.post(context.Background(), "/ok", nil, nil)
 	if err != nil {
 		t.Fatalf("204 should not be an error: %v", err)
+	}
+}
+
+func TestAPIClient_PostSetsContentType(t *testing.T) {
+	var gotCT string
+	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotCT = r.Header.Get("Content-Type")
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer api.Close()
+
+	c := newAPIClient(api.URL, "")
+	body := strings.NewReader(`{"key":"value"}`)
+	err := c.post(context.Background(), "/test", body, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if gotCT != "application/json" {
+		t.Fatalf("Content-Type = %q, want application/json", gotCT)
+	}
+}
+
+func TestAPIClient_PostNilBodyNoContentType(t *testing.T) {
+	var gotCT string
+	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotCT = r.Header.Get("Content-Type")
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer api.Close()
+
+	c := newAPIClient(api.URL, "")
+	err := c.post(context.Background(), "/test", nil, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if gotCT != "" {
+		t.Fatalf("Content-Type = %q, want empty for nil body", gotCT)
 	}
 }
 
@@ -823,8 +861,13 @@ func TestUpdateRun_APIError(t *testing.T) {
 
 func TestUpdateRun_SecurityType(t *testing.T) {
 	var gotPath string
+	var gotBody string
+	var gotMethod string
 	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		gotPath = r.URL.String()
+		gotMethod = r.Method
+		gotPath = r.URL.Path
+		body, _ := io.ReadAll(r.Body)
+		gotBody = string(body)
 		w.WriteHeader(http.StatusAccepted)
 	}))
 	defer api.Close()
@@ -839,8 +882,14 @@ func TestUpdateRun_SecurityType(t *testing.T) {
 	if w.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", w.Code)
 	}
-	if gotPath != "/api/v1/plugins/update/run?type=security" {
-		t.Fatalf("API path = %q, want security path", gotPath)
+	if gotMethod != http.MethodPost {
+		t.Fatalf("API method = %q, want POST", gotMethod)
+	}
+	if gotPath != "/api/v1/plugins/update/run" {
+		t.Fatalf("API path = %q, want /api/v1/plugins/update/run", gotPath)
+	}
+	if !strings.Contains(gotBody, `"type":"security"`) {
+		t.Fatalf("API body = %q, want JSON with type:security", gotBody)
 	}
 	if !strings.Contains(w.Body.String(), "security") {
 		t.Fatal("response should mention security")
@@ -849,8 +898,13 @@ func TestUpdateRun_SecurityType(t *testing.T) {
 
 func TestUpdateRun_DefaultType(t *testing.T) {
 	var gotPath string
+	var gotBody string
+	var gotMethod string
 	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		gotPath = r.URL.String()
+		gotMethod = r.Method
+		gotPath = r.URL.Path
+		body, _ := io.ReadAll(r.Body)
+		gotBody = string(body)
 		w.WriteHeader(http.StatusAccepted)
 	}))
 	defer api.Close()
@@ -863,8 +917,14 @@ func TestUpdateRun_DefaultType(t *testing.T) {
 	if w.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", w.Code)
 	}
+	if gotMethod != http.MethodPost {
+		t.Fatalf("API method = %q, want POST", gotMethod)
+	}
 	if gotPath != "/api/v1/plugins/update/run" {
-		t.Fatalf("API path = %q, want full update path", gotPath)
+		t.Fatalf("API path = %q, want /api/v1/plugins/update/run", gotPath)
+	}
+	if !strings.Contains(gotBody, `"type":"full"`) {
+		t.Fatalf("API body = %q, want JSON with type:full", gotBody)
 	}
 	if !strings.Contains(w.Body.String(), "full") {
 		t.Fatal("response should mention full")
