@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 )
 
@@ -314,6 +315,64 @@ func TestAPIClient_PostWithBodyAndDst(t *testing.T) {
 	}
 	if dst["echo"] != `{"type":"full"}` {
 		t.Fatalf("dst[echo] = %q, want request body echoed back", dst["echo"])
+	}
+}
+
+func TestAPIClient_RedirectNotFollowed_Get(t *testing.T) {
+	var redirectHit atomic.Bool
+	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		redirectHit.Store(true)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer target.Close()
+
+	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		http.Redirect(w, &http.Request{}, target.URL, http.StatusFound)
+	}))
+	defer api.Close()
+
+	c := newAPIClient(api.URL, "")
+	err := c.get(context.Background(), "/test", nil)
+	if err == nil {
+		t.Fatal("expected error for 302 redirect")
+	}
+	if redirectHit.Load() {
+		t.Fatal("redirect target should not have been contacted")
+	}
+	if !strings.Contains(err.Error(), "302") {
+		t.Fatalf("error should mention 302: %v", err)
+	}
+	if !strings.Contains(err.Error(), target.URL) {
+		t.Fatalf("error should include redirect Location URL %q: %v", target.URL, err)
+	}
+}
+
+func TestAPIClient_RedirectNotFollowed_Post(t *testing.T) {
+	var redirectHit atomic.Bool
+	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		redirectHit.Store(true)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer target.Close()
+
+	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		http.Redirect(w, &http.Request{}, target.URL, http.StatusFound)
+	}))
+	defer api.Close()
+
+	c := newAPIClient(api.URL, "")
+	err := c.post(context.Background(), "/test", nil, nil)
+	if err == nil {
+		t.Fatal("expected error for 302 redirect")
+	}
+	if redirectHit.Load() {
+		t.Fatal("redirect target should not have been contacted")
+	}
+	if !strings.Contains(err.Error(), "302") {
+		t.Fatalf("error should mention 302: %v", err)
+	}
+	if !strings.Contains(err.Error(), target.URL) {
+		t.Fatalf("error should include redirect Location URL %q: %v", target.URL, err)
 	}
 }
 
