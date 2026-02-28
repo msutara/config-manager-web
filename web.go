@@ -11,6 +11,7 @@ import (
 	"io/fs"
 	"log/slog"
 	"net/http"
+	"strings"
 
 	"github.com/go-chi/chi/v5"
 )
@@ -41,6 +42,23 @@ func formatUptime(seconds int) string {
 	return fmt.Sprintf("%dm", m)
 }
 
+// titleCase converts a hyphen-separated plugin name to Title Case with spaces.
+// Only operates on ASCII bytes (plugin names are constrained to [a-z0-9-]).
+func titleCase(s string) string {
+	if s == "" {
+		return s
+	}
+	parts := strings.Split(s, "-")
+	result := make([]string, 0, len(parts))
+	for _, p := range parts {
+		if p == "" {
+			continue
+		}
+		result = append(result, strings.ToUpper(p[:1])+p[1:])
+	}
+	return strings.Join(result, " ")
+}
+
 // NewHandler creates a web UI handler that renders pages and proxies actions
 // to the CM JSON API at apiURL. When authToken is non-empty, a login page
 // gates access via cookie-based sessions.
@@ -53,6 +71,7 @@ func NewHandler(apiURL, authToken string) http.Handler {
 
 	funcMap := template.FuncMap{
 		"formatUptime": formatUptime,
+		"title":        titleCase,
 	}
 
 	mustRead := func(name string) []byte {
@@ -67,7 +86,7 @@ func NewHandler(apiURL, authToken string) http.Handler {
 	// "content" block name collisions between pages.
 	layoutBytes := mustRead("layout.html")
 	h.templates = make(map[string]*template.Template)
-	for _, page := range []string{"dashboard.html", "update.html", "network.html"} {
+	for _, page := range []string{"dashboard.html", "update.html", "network.html", "plugin.html"} {
 		t := template.Must(template.New("").Funcs(funcMap).Parse(string(layoutBytes)))
 		template.Must(t.Parse(string(mustRead(page))))
 		h.templates[page] = t
@@ -94,9 +113,21 @@ func NewHandler(apiURL, authToken string) http.Handler {
 	h.router.Group(func(r chi.Router) {
 		r.Use(h.requireSession)
 		r.Post("/auth/logout", h.handleAuthLogout)
+
+		// Generic plugin routes — regex constrains to valid plugin names.
+		// Chi radix trie ensures literal routes (/update, /network) always
+		// win over these param routes.
+		r.Get("/{plugin:[a-z][a-z0-9-]*}", h.handleGenericPlugin)
+		r.Post("/{plugin:[a-z][a-z0-9-]*}/actions/*", h.handleGenericAction)
+
+		// Dashboard.
 		r.Get("/", h.handleDashboard)
+
+		// Update plugin (custom handlers for richer UX).
 		r.Get("/update", h.handleUpdate)
 		r.Post("/update/run", h.handleUpdateRun)
+
+		// Network plugin (custom handler for richer UX).
 		r.Get("/network", h.handleNetwork)
 	})
 
@@ -140,4 +171,24 @@ func (h *Handler) render(w http.ResponseWriter, name string, data any) {
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	_, _ = w.Write(buf.Bytes()) //nolint:errcheck // HTTP response write
+}
+
+// fetchPlugins retrieves the plugin list from the core API.
+func (h *Handler) fetchPlugins(r *http.Request) ([]PluginInfo, error) {
+	var plugins []PluginInfo
+	if err := h.client.get(r.Context(), "/api/v1/plugins", &plugins); err != nil {
+		return nil, err
+	}
+	return plugins, nil
+}
+
+// withPlugins adds the Plugins list to a template data map.
+// Errors are swallowed because the sidebar degrades gracefully (empty list).
+func (h *Handler) withPlugins(r *http.Request, data map[string]any) map[string]any {
+	plugins, err := h.fetchPlugins(r)
+	if err != nil {
+		slog.Debug("web: sidebar plugin fetch failed", "error", err)
+	}
+	data["Plugins"] = plugins
+	return data
 }

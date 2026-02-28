@@ -9,6 +9,8 @@ import (
 	"time"
 )
 
+// ---------- API client ----------
+
 // apiClient makes authenticated requests to the CM JSON API.
 type apiClient struct {
 	baseURL string
@@ -88,6 +90,26 @@ func (c *apiClient) post(ctx context.Context, path string, dst any) error {
 	return nil
 }
 
+// ---------- Generic types (plugin registry) ----------
+
+// PluginEndpoint describes a single endpoint exposed by a plugin.
+type PluginEndpoint struct {
+	Method      string `json:"method"`
+	Path        string `json:"path"`
+	Description string `json:"description"`
+}
+
+// PluginInfo holds metadata returned by GET /api/v1/plugins.
+type PluginInfo struct {
+	Name        string           `json:"name"`
+	Version     string           `json:"version"`
+	Description string           `json:"description"`
+	RoutePrefix string           `json:"route_prefix"`
+	Endpoints   []PluginEndpoint `json:"endpoints"`
+}
+
+// ---------- Core types ----------
+
 // NodeInfo holds the response from GET /api/v1/node.
 type NodeInfo struct {
 	Hostname      string `json:"hostname"`
@@ -96,6 +118,8 @@ type NodeInfo struct {
 	Arch          string `json:"arch"`
 	UptimeSeconds int    `json:"uptime_seconds"`
 }
+
+// ---------- Update plugin types ----------
 
 // PendingUpdate holds one entry from GET /api/v1/plugins/update/status.
 type PendingUpdate struct {
@@ -121,6 +145,8 @@ type UpdateConfig struct {
 	AutoSecurityUpdate bool   `json:"auto_security_updates"`
 	Schedule           string `json:"schedule,omitempty"`
 }
+
+// ---------- Network plugin types ----------
 
 // NetworkInterface holds one entry from GET /api/v1/plugins/network/interfaces.
 type NetworkInterface struct {
