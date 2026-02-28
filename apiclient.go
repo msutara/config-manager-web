@@ -24,6 +24,9 @@ func newAPIClient(baseURL, token string) *apiClient {
 		token:   token,
 		http: &http.Client{
 			Timeout: 30 * time.Second,
+			CheckRedirect: func(*http.Request, []*http.Request) error {
+				return http.ErrUseLastResponse
+			},
 		},
 	}
 }
@@ -45,8 +48,11 @@ func (c *apiClient) get(ctx context.Context, path string, dst any) error {
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(io.LimitReader(resp.Body, 1024)) //nolint:errcheck // best-effort error detail
-		return fmt.Errorf("api %s returned %d: %s", path, resp.StatusCode, body)
+		respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 1024)) //nolint:errcheck // best-effort error detail
+		if loc := resp.Header.Get("Location"); loc != "" && resp.StatusCode >= 300 && resp.StatusCode < 400 {
+			return fmt.Errorf("api %s returned %d redirect to %s: %s", path, resp.StatusCode, loc, respBody)
+		}
+		return fmt.Errorf("api %s returned %d: %s", path, resp.StatusCode, respBody)
 	}
 
 	if dst != nil {
@@ -80,8 +86,11 @@ func (c *apiClient) post(ctx context.Context, path string, body io.Reader, dst a
 
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusAccepted &&
 		resp.StatusCode != http.StatusNoContent {
-		body, _ := io.ReadAll(io.LimitReader(resp.Body, 1024)) //nolint:errcheck // best-effort error detail
-		return fmt.Errorf("api %s returned %d: %s", path, resp.StatusCode, body)
+		respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 1024)) //nolint:errcheck // best-effort error detail
+		if loc := resp.Header.Get("Location"); loc != "" && resp.StatusCode >= 300 && resp.StatusCode < 400 {
+			return fmt.Errorf("api %s returned %d redirect to %s: %s", path, resp.StatusCode, loc, respBody)
+		}
+		return fmt.Errorf("api %s returned %d: %s", path, resp.StatusCode, respBody)
 	}
 
 	if dst != nil {
