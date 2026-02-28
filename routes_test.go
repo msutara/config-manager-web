@@ -296,6 +296,27 @@ func TestAPIClient_PostNilBodyNoContentType(t *testing.T) {
 	}
 }
 
+func TestAPIClient_PostWithBodyAndDst(t *testing.T) {
+	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Echo back a JSON response.
+		reqBody, _ := io.ReadAll(r.Body)
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]string{"echo": string(reqBody)})
+	}))
+	defer api.Close()
+
+	c := newAPIClient(api.URL, "")
+	body := strings.NewReader(`{"type":"full"}`)
+	var dst map[string]string
+	err := c.post(context.Background(), "/test", body, &dst)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if dst["echo"] != `{"type":"full"}` {
+		t.Fatalf("dst[echo] = %q, want request body echoed back", dst["echo"])
+	}
+}
+
 func TestAPIClient_GetInvalidJSON(t *testing.T) {
 	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
