@@ -16,9 +16,11 @@
         </div>
         <ul class="nav-links">
             <li><a href="/" class="{{ if eq .Page "dashboard" }}active{{ end }}">Dashboard</a></li>
-            {{ range .Plugins }}
+            <li><a href="/update" class="{{ if eq .Page "update" }}active{{ end }}">Update</a></li>
+            <li><a href="/network" class="{{ if eq .Page "network" }}active{{ end }}">Network</a></li>
+            {{ range .Plugins }}{{ if and (ne .Name "update") (ne .Name "network") }}
             <li><a href="/{{ .Name }}" class="{{ if eq $.Page .Name }}active{{ end }}">{{ .Name | title }}</a></li>
-            {{ end }}
+            {{ end }}{{ end }}
         </ul>
         <div class="sidebar-footer">
             <form method="post" action="/auth/logout">

@@ -1,6 +1,7 @@
 package web
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"html"
@@ -19,7 +20,7 @@ import (
 // EndpointData holds the result of fetching a single GET endpoint.
 type EndpointData struct {
 	Description string
-	Data        any
+	Data        string
 	Error       string
 }
 
@@ -130,14 +131,9 @@ func (h *Handler) handleGenericPlugin(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			// Pretty-print JSON for display; fall back to raw text.
-			var parsed any
-			if err := json.Unmarshal(raw, &parsed); err == nil {
-				pretty, mErr := json.MarshalIndent(parsed, "", "  ")
-				if mErr == nil {
-					results[idx].Data = string(pretty)
-				} else {
-					results[idx].Data = string(raw)
-				}
+			var buf bytes.Buffer
+			if json.Indent(&buf, raw, "", "  ") == nil {
+				results[idx].Data = buf.String()
 			} else {
 				results[idx].Data = string(raw)
 			}
