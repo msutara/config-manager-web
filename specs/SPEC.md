@@ -96,6 +96,8 @@ Settings (editable form with htmx):
 
 Each setting change calls `PUT /api/v1/plugins/update/settings` with `{key, value}`.
 The form submits via htmx and displays success/error/warning messages inline.
+On success the handler sets `HX-Refresh: true` so the browser reloads the page
+with fresh config values from the API.
 All three fields use hidden `*_original` inputs (`schedule_original`,
 `auto_security_original`, `security_source_original`) to detect changes;
 unchanged fields are not re-submitted, avoiding redundant API calls.
