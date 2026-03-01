@@ -75,6 +75,12 @@ func NewHandler(apiURL, authToken string) http.Handler {
 	funcMap := template.FuncMap{
 		"formatUptime": formatUptime,
 		"title":        titleCase,
+		"derefBool": func(b *bool) bool {
+			if b == nil {
+				return false
+			}
+			return *b
+		},
 	}
 
 	mustRead := func(name string) []byte {
@@ -129,6 +135,7 @@ func NewHandler(apiURL, authToken string) http.Handler {
 		// Update plugin (custom handlers for richer UX).
 		r.Get("/update", h.handleUpdate)
 		r.Post("/update/run", h.handleUpdateRun)
+		r.Post("/update/settings", h.handleUpdateSettings)
 
 		// Network plugin (custom handler for richer UX).
 		r.Get("/network", h.handleNetwork)
