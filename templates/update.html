@@ -91,6 +91,7 @@
           hx-indicator="#settings-spinner">
         <div class="form-group">
             <label for="schedule">Cron Schedule</label>
+            <input type="hidden" name="schedule_original" value="{{ .Config.Schedule }}">
             <input type="text" id="schedule" name="schedule"
                    value="{{ .Config.Schedule }}"
                    placeholder="e.g. 0 3 * * *"

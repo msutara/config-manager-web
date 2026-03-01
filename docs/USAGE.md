@@ -40,7 +40,8 @@ Below the actions, the **Edit Settings** form allows changing:
 - **Security Source** — whether to use `available` (OS-provided) or `always` check
 
 Changes are saved immediately via the core API and take effect on next schedule tick.
-Success, error, and warning messages appear inline above the form.
+The schedule is only sent when the value differs from the original, preventing
+redundant updates. Success, error, and warning messages appear inline above the form.
 
 #### Network
 

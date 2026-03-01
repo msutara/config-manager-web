@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 )
@@ -337,6 +338,96 @@ func TestAPIClient_PostWithBodyAndDst(t *testing.T) {
 	}
 	if dst["echo"] != `{"type":"full"}` {
 		t.Fatalf("dst[echo] = %q, want request body echoed back", dst["echo"])
+	}
+}
+
+func TestAPIClient_Put200WithBody(t *testing.T) {
+	var gotMethod, gotCT string
+	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotMethod = r.Method
+		gotCT = r.Header.Get("Content-Type")
+		w.WriteHeader(http.StatusOK)
+		json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+	}))
+	defer api.Close()
+
+	c := newAPIClient(api.URL, "")
+	var dst map[string]string
+	err := c.put(context.Background(), "/test", strings.NewReader(`{"key":"val"}`), &dst)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if gotMethod != http.MethodPut {
+		t.Fatalf("method = %q, want PUT", gotMethod)
+	}
+	if gotCT != "application/json" {
+		t.Fatalf("Content-Type = %q, want application/json", gotCT)
+	}
+	if dst["status"] != "ok" {
+		t.Fatalf("dst[status] = %q, want %q", dst["status"], "ok")
+	}
+}
+
+func TestAPIClient_Put204NoDecodeAttempt(t *testing.T) {
+	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer api.Close()
+
+	c := newAPIClient(api.URL, "")
+	var dst map[string]string
+	err := c.put(context.Background(), "/test", nil, &dst)
+	if err != nil {
+		t.Fatalf("204 with non-nil dst should not error: %v", err)
+	}
+	if dst != nil {
+		t.Fatal("dst should remain nil on 204")
+	}
+}
+
+func TestAPIClient_PutRedirectNotFollowed(t *testing.T) {
+	var redirectHit atomic.Bool
+	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		redirectHit.Store(true)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer target.Close()
+
+	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, target.URL, http.StatusFound)
+	}))
+	defer api.Close()
+
+	c := newAPIClient(api.URL, "")
+	err := c.put(context.Background(), "/test", nil, nil)
+	if err == nil {
+		t.Fatal("expected error for 302 redirect")
+	}
+	if redirectHit.Load() {
+		t.Fatal("redirect target should not have been contacted")
+	}
+	if !strings.Contains(err.Error(), "302") {
+		t.Fatalf("error should mention 302: %v", err)
+	}
+	if !strings.Contains(err.Error(), target.URL) {
+		t.Fatalf("error should include redirect Location URL: %v", err)
+	}
+}
+
+func TestAPIClient_PutErrorStatus(t *testing.T) {
+	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+		w.Write([]byte(`{"error":"broken"}`))
+	}))
+	defer api.Close()
+
+	c := newAPIClient(api.URL, "")
+	err := c.put(context.Background(), "/fail", nil, nil)
+	if err == nil {
+		t.Fatal("expected error for 500")
+	}
+	if !strings.Contains(err.Error(), "500") {
+		t.Fatalf("error should mention 500: %v", err)
 	}
 }
 
@@ -1118,6 +1209,100 @@ func TestUpdateSettings_SingleField(t *testing.T) {
 	}
 }
 
+func TestUpdateSettings_ScheduleUnchangedSkipped(t *testing.T) {
+	var putCalls atomic.Int32
+	var receivedKeys []string
+	var mu sync.Mutex
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/v1/plugins", func(w http.ResponseWriter, _ *http.Request) {
+		json.NewEncoder(w).Encode([]PluginInfo{})
+	})
+	mux.HandleFunc("/api/v1/plugins/update/settings", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPut {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		putCalls.Add(1)
+		var payload struct {
+			Key   string `json:"key"`
+			Value any    `json:"value"`
+		}
+		json.NewDecoder(r.Body).Decode(&payload)
+		mu.Lock()
+		receivedKeys = append(receivedKeys, payload.Key)
+		mu.Unlock()
+		json.NewEncoder(w).Encode(PluginSettingsUpdateResult{
+			Config: map[string]any{"key": "val"},
+		})
+	})
+	api := httptest.NewServer(mux)
+	defer api.Close()
+
+	h := newTestHandler(t, api.URL, "")
+	// schedule unchanged: value matches original
+	body := strings.NewReader("schedule=0+3+*+*+*&schedule_original=0+3+*+*+*&auto_security=true")
+	req := httptest.NewRequest(http.MethodPost, "/update/settings", body)
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	w := httptest.NewRecorder()
+
+	h.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", w.Code)
+	}
+	if !strings.Contains(w.Body.String(), "Settings updated successfully") {
+		t.Errorf("expected success, got %q", w.Body.String())
+	}
+	// Only auto_security should have triggered a PUT, not schedule
+	if got := putCalls.Load(); got != 1 {
+		t.Errorf("expected 1 PUT call (auto_security only), got %d", got)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if len(receivedKeys) != 1 || receivedKeys[0] != "auto_security" {
+		t.Errorf("expected only auto_security key, got %v", receivedKeys)
+	}
+}
+
+func TestUpdateSettings_ScheduleChangedSent(t *testing.T) {
+	var putCalls atomic.Int32
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/v1/plugins", func(w http.ResponseWriter, _ *http.Request) {
+		json.NewEncoder(w).Encode([]PluginInfo{})
+	})
+	mux.HandleFunc("/api/v1/plugins/update/settings", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPut {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		putCalls.Add(1)
+		json.NewEncoder(w).Encode(PluginSettingsUpdateResult{
+			Config: map[string]any{"key": "val"},
+		})
+	})
+	api := httptest.NewServer(mux)
+	defer api.Close()
+
+	h := newTestHandler(t, api.URL, "")
+	// schedule changed: value differs from original
+	body := strings.NewReader("schedule=0+5+*+*+*&schedule_original=0+3+*+*+*")
+	req := httptest.NewRequest(http.MethodPost, "/update/settings", body)
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	w := httptest.NewRecorder()
+
+	h.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", w.Code)
+	}
+	if !strings.Contains(w.Body.String(), "Settings updated successfully") {
+		t.Errorf("expected success, got %q", w.Body.String())
+	}
+	if got := putCalls.Load(); got != 1 {
+		t.Errorf("expected 1 PUT call (schedule), got %d", got)
+	}
+}
+
 func TestUpdateSettings_NoValidFields(t *testing.T) {
 	api := mockAPI(t)
 	defer api.Close()
@@ -1330,6 +1515,7 @@ func TestUpdatePage_ShowsEditForm(t *testing.T) {
 	for _, want := range []string{
 		"Edit Settings",
 		`name="schedule"`,
+		`type="hidden" name="schedule_original"`,
 		`name="auto_security"`,
 		`name="security_source"`,
 		"Save Settings",

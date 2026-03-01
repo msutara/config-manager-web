@@ -96,6 +96,8 @@ Settings (editable form with htmx):
 
 Each setting change calls `PUT /api/v1/plugins/update/settings` with `{key, value}`.
 The form submits via htmx and displays success/error/warning messages inline.
+The schedule field uses a hidden `schedule_original` input to detect changes;
+unchanged schedules are not re-submitted, avoiding redundant API calls.
 Input validation rejects invalid enum values (auto_security must be `true`/`false`,
 security_source must be `available`/`always`).
 All API-provided data (errors, warnings) is escaped with `html.EscapeString` before

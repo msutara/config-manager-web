@@ -355,7 +355,9 @@ func (h *Handler) handleUpdateSettings(w http.ResponseWriter, r *http.Request) {
 	var changes []settingChange
 
 	if v := r.FormValue("schedule"); v != "" {
-		changes = append(changes, settingChange{key: "schedule", value: v})
+		if orig := r.FormValue("schedule_original"); orig == "" || orig != v {
+			changes = append(changes, settingChange{key: "schedule", value: v})
+		}
 	}
 	if v := r.FormValue("auto_security"); v == "true" || v == "false" {
 		changes = append(changes, settingChange{key: "auto_security", value: v == "true"})
