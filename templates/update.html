@@ -99,6 +99,7 @@
         </div>
         <div class="form-group">
             <label for="auto_security">Auto Security Updates</label>
+            <input type="hidden" name="auto_security_original" value="{{ if .Config.AutoSecurity }}{{ if derefBool .Config.AutoSecurity }}true{{ else }}false{{ end }}{{ end }}">
             <select id="auto_security" name="auto_security" class="form-input">
                 {{ if not .Config.AutoSecurity }}<option value="" selected>— unchanged —</option>{{ end }}
                 <option value="true"{{ if and .Config.AutoSecurity (derefBool .Config.AutoSecurity) }} selected{{ end }}>Enabled</option>
@@ -107,6 +108,7 @@
         </div>
         <div class="form-group">
             <label for="security_source">Security Source</label>
+            <input type="hidden" name="security_source_original" value="{{ .Config.SecuritySource }}">
             <select id="security_source" name="security_source" class="form-input">
                 {{ if not .Config.SecuritySource }}<option value="" selected>— unchanged —</option>{{ end }}
                 <option value="available"{{ if eq .Config.SecuritySource "available" }} selected{{ end }}>Available</option>

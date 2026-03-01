@@ -1174,7 +1174,7 @@ func TestUpdateSettings_HappyPath(t *testing.T) {
 	defer api.Close()
 
 	h := newTestHandler(t, api.URL, "")
-	body := strings.NewReader("schedule=0+4+*+*+*&auto_security=true&security_source=always")
+	body := strings.NewReader("schedule=0+4+*+*+*&schedule_original=0+3+*+*+*&auto_security=true&auto_security_original=false&security_source=always&security_source_original=available")
 	req := httptest.NewRequest(http.MethodPost, "/update/settings", body)
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	w := httptest.NewRecorder()
@@ -1194,7 +1194,7 @@ func TestUpdateSettings_SingleField(t *testing.T) {
 	defer api.Close()
 
 	h := newTestHandler(t, api.URL, "")
-	body := strings.NewReader("schedule=0+5+*+*+*")
+	body := strings.NewReader("schedule=0+5+*+*+*&schedule_original=0+3+*+*+*")
 	req := httptest.NewRequest(http.MethodPost, "/update/settings", body)
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	w := httptest.NewRecorder()
@@ -1239,8 +1239,8 @@ func TestUpdateSettings_ScheduleUnchangedSkipped(t *testing.T) {
 	defer api.Close()
 
 	h := newTestHandler(t, api.URL, "")
-	// schedule unchanged: value matches original
-	body := strings.NewReader("schedule=0+3+*+*+*&schedule_original=0+3+*+*+*&auto_security=true")
+	// schedule unchanged: value matches original; auto_security changed (original differs)
+	body := strings.NewReader("schedule=0+3+*+*+*&schedule_original=0+3+*+*+*&auto_security=true&auto_security_original=false")
 	req := httptest.NewRequest(http.MethodPost, "/update/settings", body)
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	w := httptest.NewRecorder()
@@ -1300,6 +1300,201 @@ func TestUpdateSettings_ScheduleChangedSent(t *testing.T) {
 	}
 	if got := putCalls.Load(); got != 1 {
 		t.Errorf("expected 1 PUT call (schedule), got %d", got)
+	}
+}
+
+func TestUpdateSettings_ScheduleCleared(t *testing.T) {
+	type keyVal struct {
+		Key   string `json:"key"`
+		Value any    `json:"value"`
+	}
+	var received []keyVal
+	var mu sync.Mutex
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/v1/plugins", func(w http.ResponseWriter, _ *http.Request) {
+		json.NewEncoder(w).Encode([]PluginInfo{})
+	})
+	mux.HandleFunc("/api/v1/plugins/update/settings", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPut {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		var payload keyVal
+		json.NewDecoder(r.Body).Decode(&payload)
+		mu.Lock()
+		received = append(received, payload)
+		mu.Unlock()
+		json.NewEncoder(w).Encode(PluginSettingsUpdateResult{
+			Config: map[string]any{"key": "val"},
+		})
+	})
+	api := httptest.NewServer(mux)
+	defer api.Close()
+
+	h := newTestHandler(t, api.URL, "")
+	// schedule cleared: empty value but original was non-empty
+	body := strings.NewReader("schedule=&schedule_original=0+3+*+*+*")
+	req := httptest.NewRequest(http.MethodPost, "/update/settings", body)
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	w := httptest.NewRecorder()
+
+	h.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", w.Code)
+	}
+	if !strings.Contains(w.Body.String(), "Settings updated successfully") {
+		t.Errorf("expected success, got %q", w.Body.String())
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if len(received) != 1 {
+		t.Fatalf("expected 1 PUT call, got %d", len(received))
+	}
+	if received[0].Key != "schedule" {
+		t.Errorf("expected schedule key, got %q", received[0].Key)
+	}
+	if received[0].Value != "" {
+		t.Errorf("expected empty schedule value for clearing, got %v", received[0].Value)
+	}
+}
+
+func TestUpdateSettings_AllFieldsUnchanged(t *testing.T) {
+	var putCalls atomic.Int32
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/v1/plugins", func(w http.ResponseWriter, _ *http.Request) {
+		json.NewEncoder(w).Encode([]PluginInfo{})
+	})
+	mux.HandleFunc("/api/v1/plugins/update/settings", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPut {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		putCalls.Add(1)
+		json.NewEncoder(w).Encode(PluginSettingsUpdateResult{
+			Config: map[string]any{"key": "val"},
+		})
+	})
+	api := httptest.NewServer(mux)
+	defer api.Close()
+
+	h := newTestHandler(t, api.URL, "")
+	// All fields match their originals — no PUTs should fire
+	body := strings.NewReader("schedule=0+3+*+*+*&schedule_original=0+3+*+*+*&auto_security=true&auto_security_original=true&security_source=always&security_source_original=always")
+	req := httptest.NewRequest(http.MethodPost, "/update/settings", body)
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	w := httptest.NewRecorder()
+
+	h.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", w.Code)
+	}
+	if !strings.Contains(w.Body.String(), "No valid settings provided") {
+		t.Errorf("expected no changes message, got %q", w.Body.String())
+	}
+	if got := putCalls.Load(); got != 0 {
+		t.Errorf("expected 0 PUT calls for unchanged fields, got %d", got)
+	}
+}
+
+func TestUpdateSettings_SelectUnchangedSkipped(t *testing.T) {
+	var receivedKeys []string
+	var mu sync.Mutex
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/v1/plugins", func(w http.ResponseWriter, _ *http.Request) {
+		json.NewEncoder(w).Encode([]PluginInfo{})
+	})
+	mux.HandleFunc("/api/v1/plugins/update/settings", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPut {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		var payload struct {
+			Key   string `json:"key"`
+			Value any    `json:"value"`
+		}
+		json.NewDecoder(r.Body).Decode(&payload)
+		mu.Lock()
+		receivedKeys = append(receivedKeys, payload.Key)
+		mu.Unlock()
+		json.NewEncoder(w).Encode(PluginSettingsUpdateResult{
+			Config: map[string]any{"key": "val"},
+		})
+	})
+	api := httptest.NewServer(mux)
+	defer api.Close()
+
+	h := newTestHandler(t, api.URL, "")
+	// auto_security and security_source unchanged; only schedule changed
+	body := strings.NewReader("schedule=0+5+*+*+*&schedule_original=0+3+*+*+*&auto_security=true&auto_security_original=true&security_source=always&security_source_original=always")
+	req := httptest.NewRequest(http.MethodPost, "/update/settings", body)
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	w := httptest.NewRecorder()
+
+	h.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", w.Code)
+	}
+	if !strings.Contains(w.Body.String(), "Settings updated successfully") {
+		t.Errorf("expected success, got %q", w.Body.String())
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if len(receivedKeys) != 1 || receivedKeys[0] != "schedule" {
+		t.Errorf("expected only schedule key, got %v", receivedKeys)
+	}
+}
+
+func TestUpdateSettings_BackwardCompatNoOriginals(t *testing.T) {
+	var receivedKeys []string
+	var mu sync.Mutex
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/v1/plugins", func(w http.ResponseWriter, _ *http.Request) {
+		json.NewEncoder(w).Encode([]PluginInfo{})
+	})
+	mux.HandleFunc("/api/v1/plugins/update/settings", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPut {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		var payload struct {
+			Key   string `json:"key"`
+			Value any    `json:"value"`
+		}
+		json.NewDecoder(r.Body).Decode(&payload)
+		mu.Lock()
+		receivedKeys = append(receivedKeys, payload.Key)
+		mu.Unlock()
+		json.NewEncoder(w).Encode(PluginSettingsUpdateResult{
+			Config: map[string]any{"key": "val"},
+		})
+	})
+	api := httptest.NewServer(mux)
+	defer api.Close()
+
+	h := newTestHandler(t, api.URL, "")
+	// No _original fields — backward compat: all valid fields should be sent
+	body := strings.NewReader("schedule=0+3+*+*+*&auto_security=true&security_source=always")
+	req := httptest.NewRequest(http.MethodPost, "/update/settings", body)
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	w := httptest.NewRecorder()
+
+	h.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", w.Code)
+	}
+	if !strings.Contains(w.Body.String(), "Settings updated successfully") {
+		t.Errorf("expected success, got %q", w.Body.String())
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	// Without _original fields, all 3 should be sent (schedule differs from empty original,
+	// auto_security and security_source have empty original → orig=="" triggers send)
+	if len(receivedKeys) != 3 {
+		t.Errorf("expected 3 PUT calls without _original fields, got %d: %v", len(receivedKeys), receivedKeys)
 	}
 }
 
@@ -1375,7 +1570,7 @@ func TestUpdateSettings_APIError(t *testing.T) {
 	defer api.Close()
 
 	h := newTestHandler(t, api.URL, "")
-	body := strings.NewReader("schedule=0+3+*+*+*")
+	body := strings.NewReader("schedule=0+3+*+*+*&schedule_original=0+5+*+*+*")
 	req := httptest.NewRequest(http.MethodPost, "/update/settings", body)
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	w := httptest.NewRecorder()
@@ -1402,7 +1597,7 @@ func TestUpdateSettings_XSSSanitized(t *testing.T) {
 	defer api.Close()
 
 	h := newTestHandler(t, api.URL, "")
-	body := strings.NewReader("schedule=0+3+*+*+*")
+	body := strings.NewReader("schedule=0+3+*+*+*&schedule_original=0+5+*+*+*")
 	req := httptest.NewRequest(http.MethodPost, "/update/settings", body)
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	w := httptest.NewRecorder()
@@ -1440,7 +1635,7 @@ func TestUpdateSettings_WarningIncluded(t *testing.T) {
 	defer api.Close()
 
 	h := newTestHandler(t, api.URL, "")
-	body := strings.NewReader("schedule=0+3+*+*+*")
+	body := strings.NewReader("schedule=0+3+*+*+*&schedule_original=0+5+*+*+*")
 	req := httptest.NewRequest(http.MethodPost, "/update/settings", body)
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	w := httptest.NewRecorder()
@@ -1478,7 +1673,7 @@ func TestUpdateSettings_WarningSanitized(t *testing.T) {
 	defer api.Close()
 
 	h := newTestHandler(t, api.URL, "")
-	body := strings.NewReader("schedule=0+3+*+*+*")
+	body := strings.NewReader("schedule=0+3+*+*+*&schedule_original=0+5+*+*+*")
 	req := httptest.NewRequest(http.MethodPost, "/update/settings", body)
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	w := httptest.NewRecorder()
@@ -1516,6 +1711,8 @@ func TestUpdatePage_ShowsEditForm(t *testing.T) {
 		"Edit Settings",
 		`name="schedule"`,
 		`type="hidden" name="schedule_original"`,
+		`type="hidden" name="auto_security_original"`,
+		`type="hidden" name="security_source_original"`,
 		`name="auto_security"`,
 		`name="security_source"`,
 		"Save Settings",
@@ -1532,7 +1729,7 @@ func TestUpdateSettings_AutoSecurityFalse(t *testing.T) {
 	defer api.Close()
 
 	h := newTestHandler(t, api.URL, "")
-	body := strings.NewReader("auto_security=false")
+	body := strings.NewReader("auto_security=false&auto_security_original=true")
 	req := httptest.NewRequest(http.MethodPost, "/update/settings", body)
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	w := httptest.NewRecorder()
@@ -1582,7 +1779,7 @@ func TestUpdateSettings_ContentTypeOnError(t *testing.T) {
 	defer api.Close()
 
 	h := newTestHandler(t, api.URL, "")
-	body := strings.NewReader("schedule=test")
+	body := strings.NewReader("schedule=test&schedule_original=old")
 	req := httptest.NewRequest(http.MethodPost, "/update/settings", body)
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	w := httptest.NewRecorder()
@@ -1619,7 +1816,7 @@ func TestUpdateSettings_PartialFailure(t *testing.T) {
 	defer api.Close()
 
 	h := newTestHandler(t, api.URL, "")
-	body := strings.NewReader("schedule=0+3+*+*+*&auto_security=true&security_source=always")
+	body := strings.NewReader("schedule=0+3+*+*+*&schedule_original=0+5+*+*+*&auto_security=true&auto_security_original=false&security_source=always&security_source_original=available")
 	req := httptest.NewRequest(http.MethodPost, "/update/settings", body)
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	w := httptest.NewRecorder()

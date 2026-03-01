@@ -354,16 +354,23 @@ func (h *Handler) handleUpdateSettings(w http.ResponseWriter, r *http.Request) {
 
 	var changes []settingChange
 
-	if v := r.FormValue("schedule"); v != "" {
-		if orig := r.FormValue("schedule_original"); orig == "" || orig != v {
-			changes = append(changes, settingChange{key: "schedule", value: v})
+	// Schedule: compare against original to detect actual changes.
+	// An empty schedule when the original was non-empty means the user cleared it.
+	schedule := r.FormValue("schedule")
+	origSchedule := r.FormValue("schedule_original")
+	if schedule != origSchedule {
+		changes = append(changes, settingChange{key: "schedule", value: schedule})
+	}
+
+	if v := r.FormValue("auto_security"); v == "true" || v == "false" {
+		if orig := r.FormValue("auto_security_original"); orig == "" || orig != v {
+			changes = append(changes, settingChange{key: "auto_security", value: v == "true"})
 		}
 	}
-	if v := r.FormValue("auto_security"); v == "true" || v == "false" {
-		changes = append(changes, settingChange{key: "auto_security", value: v == "true"})
-	}
 	if v := r.FormValue("security_source"); v == "available" || v == "always" {
-		changes = append(changes, settingChange{key: "security_source", value: v})
+		if orig := r.FormValue("security_source_original"); orig == "" || orig != v {
+			changes = append(changes, settingChange{key: "security_source", value: v})
+		}
 	}
 
 	if len(changes) == 0 {
