@@ -311,7 +311,7 @@ func (h *Handler) handleUpdateRun(w http.ResponseWriter, r *http.Request) {
 		updateType = "full"
 	}
 
-	path := "/api/v1/plugins/update/run"
+	apiPath := "/api/v1/plugins/update/run"
 	payload, err := json.Marshal(map[string]string{"type": updateType})
 	if err != nil {
 		slog.Error("web: failed to marshal update request", "error", err)
@@ -320,7 +320,7 @@ func (h *Handler) handleUpdateRun(w http.ResponseWriter, r *http.Request) {
 	}
 	body := bytes.NewReader(payload)
 
-	err = h.client.post(r.Context(), path, body, nil)
+	err = h.client.post(r.Context(), apiPath, body, nil)
 	if err != nil {
 		slog.Error("web: failed to trigger update", "type", updateType, "error", err)
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")

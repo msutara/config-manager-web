@@ -131,6 +131,9 @@ func TestAuthLogout_ClearsCookie(t *testing.T) {
 
 	for _, c := range w.Result().Cookies() {
 		if c.Name == sessionCookieName && c.MaxAge == -1 {
+			if c.SameSite != http.SameSiteStrictMode {
+				t.Fatalf("logout cookie SameSite = %d, want Strict", c.SameSite)
+			}
 			return
 		}
 	}

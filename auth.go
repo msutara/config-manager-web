@@ -70,6 +70,7 @@ func (h *Handler) handleAuthLogout(w http.ResponseWriter, r *http.Request) {
 		Value:    "",
 		Path:     "/",
 		HttpOnly: true,
+		SameSite: http.SameSiteStrictMode,
 		MaxAge:   -1,
 	})
 
