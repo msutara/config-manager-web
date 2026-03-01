@@ -46,7 +46,7 @@
         Run Full Update
     </button>
 
-    {{ if and (not .ConfigErr) .Config.SecurityAvailable (derefBool .Config.SecurityAvailable) }}
+    {{ if and (not .ConfigErr) (derefBool .Config.SecurityAvailable) }}
     <button class="btn btn-secondary"
             hx-post="/update/run"
             hx-vals='{"type":"security"}'

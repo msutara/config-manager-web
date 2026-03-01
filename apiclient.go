@@ -143,9 +143,9 @@ func (c *apiClient) put(ctx context.Context, path string, body io.Reader, dst an
 
 // ---------- Plugin settings ----------
 
-// validPluginName matches plugin names: lowercase alphanumeric with hyphens,
-// no leading/trailing hyphens. Blocks path traversal.
-var validPluginName = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]*[a-z0-9])?$`)
+// validPluginName matches plugin names according to the router's constraint:
+// leading lowercase letter, followed by lowercase alphanumeric or hyphens.
+var validPluginName = regexp.MustCompile(`^[a-z][a-z0-9-]*$`)
 
 // PluginSettings holds the response from GET /api/v1/plugins/{name}/settings.
 type PluginSettings struct {

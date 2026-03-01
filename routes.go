@@ -399,16 +399,16 @@ func (h *Handler) handleUpdateSettings(w http.ResponseWriter, r *http.Request) {
 	var b strings.Builder
 	if len(failedKeys) > 0 {
 		b.WriteString(`<div class="alert alert-error">`) //nolint:errcheck // strings.Builder
-		fmt.Fprintf(&b, "Updated %s but failed to update %s",
-			strings.Join(updatedKeys, ", "), strings.Join(failedKeys, ", "))
+		_, _ = fmt.Fprintf(&b, "Updated %s but failed to update %s",
+			strings.Join(updatedKeys, ", "), strings.Join(failedKeys, ", ")) //nolint:errcheck // strings.Builder
 		b.WriteString(`</div>`) //nolint:errcheck // strings.Builder
 	} else {
 		b.WriteString(`<div class="alert alert-success">Settings updated successfully</div>`) //nolint:errcheck // strings.Builder
 	}
-	for _, w := range warnings {
+	for _, warn := range warnings {
 		b.WriteString(`<div class="alert alert-warning">`) //nolint:errcheck // strings.Builder
-		fmt.Fprintf(&b, "Warning: %s", w)
-		b.WriteString(`</div>`) //nolint:errcheck // strings.Builder
+		_, _ = fmt.Fprintf(&b, "Warning: %s", warn)        //nolint:errcheck // strings.Builder
+		b.WriteString(`</div>`)                            //nolint:errcheck // strings.Builder
 	}
 	_, _ = w.Write([]byte(b.String())) //nolint:errcheck // HTTP write
 }
