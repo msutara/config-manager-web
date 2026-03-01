@@ -337,6 +337,91 @@ func (h *Handler) handleUpdateRun(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("HX-Refresh", "true")
 }
 
+// handleUpdateSettings saves individual update plugin settings via the
+// settings API and returns an htmx HTML fragment with the result.
+func (h *Handler) handleUpdateSettings(w http.ResponseWriter, r *http.Request) {
+	if err := r.ParseForm(); err != nil {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = w.Write([]byte(`<div class="alert alert-error">Invalid form data</div>`)) //nolint:errcheck // HTTP write
+		return
+	}
+
+	type settingChange struct {
+		key   string
+		value any
+	}
+
+	var changes []settingChange
+
+	// Schedule: compare against original to detect actual changes.
+	// An empty schedule when the original was non-empty means the user cleared it.
+	schedule := r.FormValue("schedule")
+	origSchedule := r.FormValue("schedule_original")
+	if schedule != origSchedule {
+		changes = append(changes, settingChange{key: "schedule", value: schedule})
+	}
+
+	if v := r.FormValue("auto_security"); v == "true" || v == "false" {
+		if orig := r.FormValue("auto_security_original"); orig == "" || orig != v {
+			changes = append(changes, settingChange{key: "auto_security", value: v == "true"})
+		}
+	}
+	if v := r.FormValue("security_source"); v == "available" || v == "always" {
+		if orig := r.FormValue("security_source_original"); orig == "" || orig != v {
+			changes = append(changes, settingChange{key: "security_source", value: v})
+		}
+	}
+
+	if len(changes) == 0 {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		_, _ = w.Write([]byte(`<div class="alert alert-error">No valid settings provided</div>`)) //nolint:errcheck // HTTP write
+		return
+	}
+
+	var (
+		failedKeys  []string
+		updatedKeys []string
+		warnings    []string
+	)
+	for _, c := range changes {
+		res, err := h.client.updatePluginSetting(r.Context(), "update", c.key, c.value)
+		if err != nil {
+			slog.Error("web: failed to update setting", "key", c.key, "error", err)
+			failedKeys = append(failedKeys, c.key)
+			continue
+		}
+		updatedKeys = append(updatedKeys, c.key)
+		if res != nil && res.Warning != "" {
+			warnings = append(warnings, html.EscapeString(res.Warning))
+		}
+	}
+
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+
+	if len(failedKeys) > 0 && len(updatedKeys) == 0 {
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte(`<div class="alert alert-error">Failed to save settings</div>`)) //nolint:errcheck // HTTP write
+		return
+	}
+
+	var b strings.Builder
+	if len(failedKeys) > 0 {
+		b.WriteString(`<div class="alert alert-error">`) //nolint:errcheck // strings.Builder
+		_, _ = fmt.Fprintf(&b, "Updated %s but failed to update %s",
+			strings.Join(updatedKeys, ", "), strings.Join(failedKeys, ", ")) //nolint:errcheck // strings.Builder
+		b.WriteString(`</div>`) //nolint:errcheck // strings.Builder
+	} else {
+		b.WriteString(`<div class="alert alert-success">Settings updated successfully</div>`) //nolint:errcheck // strings.Builder
+	}
+	for _, warn := range warnings {
+		b.WriteString(`<div class="alert alert-warning">`) //nolint:errcheck // strings.Builder
+		_, _ = fmt.Fprintf(&b, "Warning: %s", warn)        //nolint:errcheck // strings.Builder
+		b.WriteString(`</div>`)                            //nolint:errcheck // strings.Builder
+	}
+	_, _ = w.Write([]byte(b.String())) //nolint:errcheck // HTTP write
+}
+
 // ---------- Network plugin ----------
 
 // handleNetwork renders the network info page.

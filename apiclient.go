@@ -1,11 +1,13 @@
 package web
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
+	"regexp"
 	"time"
 )
 
@@ -93,13 +95,86 @@ func (c *apiClient) post(ctx context.Context, path string, body io.Reader, dst a
 		return fmt.Errorf("api %s returned %d: %s", path, resp.StatusCode, respBody)
 	}
 
-	if dst != nil {
+	if dst != nil && resp.StatusCode != http.StatusNoContent {
 		if err := json.NewDecoder(resp.Body).Decode(dst); err != nil {
 			return fmt.Errorf("decode response: %w", err)
 		}
 	}
 
 	return nil
+}
+
+// put performs an authenticated PUT with a JSON body and decodes JSON into dst.
+func (c *apiClient) put(ctx context.Context, path string, body io.Reader, dst any) error {
+	req, err := http.NewRequestWithContext(ctx, http.MethodPut, c.baseURL+path, body)
+	if err != nil {
+		return fmt.Errorf("build request: %w", err)
+	}
+
+	if body != nil {
+		req.Header.Set("Content-Type", "application/json")
+	}
+	if c.token != "" {
+		req.Header.Set("Authorization", "Bearer "+c.token)
+	}
+
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return fmt.Errorf("api request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusNoContent {
+		respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 1024)) //nolint:errcheck // best-effort error detail
+		if loc := resp.Header.Get("Location"); loc != "" && resp.StatusCode >= 300 && resp.StatusCode < 400 {
+			return fmt.Errorf("api %s returned %d redirect to %s: %s", path, resp.StatusCode, loc, respBody)
+		}
+		return fmt.Errorf("api %s returned %d: %s", path, resp.StatusCode, respBody)
+	}
+
+	if dst != nil && resp.StatusCode != http.StatusNoContent {
+		if err := json.NewDecoder(resp.Body).Decode(dst); err != nil {
+			return fmt.Errorf("decode response: %w", err)
+		}
+	}
+
+	return nil
+}
+
+// ---------- Plugin settings ----------
+
+// validPluginName matches plugin names according to the router's constraint:
+// leading lowercase letter, followed by lowercase alphanumeric or hyphens.
+var validPluginName = regexp.MustCompile(`^[a-z][a-z0-9-]*$`)
+
+// PluginSettings holds the response from GET /api/v1/plugins/{name}/settings.
+type PluginSettings struct {
+	Config map[string]any `json:"config"`
+}
+
+// PluginSettingsUpdateResult holds the response from PUT /api/v1/plugins/{name}/settings.
+type PluginSettingsUpdateResult struct {
+	Config  map[string]any `json:"config"`
+	Warning string         `json:"warning,omitempty"`
+}
+
+// updatePluginSetting changes a single setting key for a plugin.
+func (c *apiClient) updatePluginSetting(ctx context.Context, name, key string, value any) (*PluginSettingsUpdateResult, error) {
+	if !validPluginName.MatchString(name) {
+		return nil, fmt.Errorf("invalid plugin name: %q", name)
+	}
+	payload, err := json.Marshal(struct {
+		Key   string `json:"key"`
+		Value any    `json:"value"`
+	}{Key: key, Value: value})
+	if err != nil {
+		return nil, fmt.Errorf("marshal payload: %w", err)
+	}
+	var r PluginSettingsUpdateResult
+	if err := c.put(ctx, "/api/v1/plugins/"+name+"/settings", bytes.NewReader(payload), &r); err != nil {
+		return nil, err
+	}
+	return &r, nil
 }
 
 // ---------- Generic types (plugin registry) ----------
@@ -153,9 +228,10 @@ type RunStatus struct {
 
 // UpdateConfig holds the response from GET /api/v1/plugins/update/config.
 type UpdateConfig struct {
-	SecurityAvailable  bool   `json:"security_available"`
-	AutoSecurityUpdate bool   `json:"auto_security_updates"`
-	Schedule           string `json:"schedule,omitempty"`
+	SecurityAvailable *bool  `json:"security_available"`
+	AutoSecurity      *bool  `json:"auto_security"`
+	SecuritySource    string `json:"security_source,omitempty"`
+	Schedule          string `json:"schedule,omitempty"`
 }
 
 // ---------- Network plugin types ----------

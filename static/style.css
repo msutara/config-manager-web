@@ -250,6 +250,41 @@ h3 {
     color: var(--success);
 }
 
+.alert-warning {
+    background: rgba(224, 175, 104, 0.15);
+    border: 1px solid var(--warning);
+    color: var(--warning);
+}
+
+/* Forms */
+
+.form-group {
+    margin-bottom: 1rem;
+}
+
+.form-group label {
+    display: block;
+    margin-bottom: 0.4rem;
+    color: var(--text-muted);
+    font-size: 0.85rem;
+}
+
+.form-input {
+    width: 100%;
+    max-width: 400px;
+    padding: 0.5rem 0.75rem;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: var(--bg);
+    color: var(--text);
+    font-size: 0.9rem;
+}
+
+.form-input:focus {
+    outline: none;
+    border-color: var(--accent);
+}
+
 /* Status colors */
 
 .status-ok { color: var(--success); }

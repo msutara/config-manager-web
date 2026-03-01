@@ -35,6 +35,7 @@ No external file dependencies at runtime.
 | `/auth/logout` | POST | Yes | Clear session cookie |
 | `/update` | GET | Yes | Update manager page |
 | `/update/run` | POST | Yes | Trigger update (htmx fragment) |
+| `/update/settings` | POST | Yes | Save update plugin settings (htmx fragment) |
 | `/network` | GET | Yes | Network information page |
 | `/static/*` | GET | No | Embedded static assets |
 
@@ -87,10 +88,29 @@ Actions:
 - **Run Security Update** — `POST /api/v1/plugins/update/run?type=security`
   (only shown when security source is available)
 
+Settings (editable form with htmx):
+
+- **Schedule** — cron expression (text input)
+- **Auto Security Updates** — enabled/disabled (select)
+- **Security Source** — available/always (select)
+
+Each setting change calls `PUT /api/v1/plugins/update/settings` with `{key, value}`.
+The form submits via htmx and displays success/error/warning messages inline.
+All three fields use hidden `*_original` inputs (`schedule_original`,
+`auto_security_original`, `security_source_original`) to detect changes;
+unchanged fields are not re-submitted, avoiding redundant API calls.
+Clearing the schedule (empty value when original was non-empty) sends an
+explicit empty value to the API.
+Input validation rejects invalid enum values (auto_security must be `true`/`false`,
+security_source must be `available`/`always`).
+All API-provided data (errors, warnings) is escaped with `html.EscapeString` before
+rendering to prevent XSS.
+
 Data sources:
 
 - `GET /api/v1/plugins/update/status`
 - `GET /api/v1/plugins/update/config`
+- `GET /api/v1/plugins/update/logs`
 
 ### Network (`/network`)
 
