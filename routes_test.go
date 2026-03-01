@@ -1187,6 +1187,9 @@ func TestUpdateSettings_HappyPath(t *testing.T) {
 	if !strings.Contains(w.Body.String(), "Settings updated successfully") {
 		t.Errorf("expected success message, got %q", w.Body.String())
 	}
+	if w.Header().Get("HX-Refresh") != "true" {
+		t.Error("should set HX-Refresh header on successful settings save")
+	}
 }
 
 func TestUpdateSettings_SingleField(t *testing.T) {
@@ -1206,6 +1209,9 @@ func TestUpdateSettings_SingleField(t *testing.T) {
 	}
 	if !strings.Contains(w.Body.String(), "Settings updated successfully") {
 		t.Errorf("expected success, got %q", w.Body.String())
+	}
+	if w.Header().Get("HX-Refresh") != "true" {
+		t.Error("should set HX-Refresh header on successful settings save")
 	}
 }
 
@@ -1833,6 +1839,9 @@ func TestUpdateSettings_PartialFailure(t *testing.T) {
 	}
 	if !strings.Contains(respBody, "failed to update") {
 		t.Errorf("should mention failed keys, got %q", respBody)
+	}
+	if got := w.Header().Get("HX-Refresh"); got != "" {
+		t.Errorf("partial failure must not set HX-Refresh, got %q", got)
 	}
 }
 

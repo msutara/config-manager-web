@@ -412,6 +412,7 @@ func (h *Handler) handleUpdateSettings(w http.ResponseWriter, r *http.Request) {
 			strings.Join(updatedKeys, ", "), strings.Join(failedKeys, ", ")) //nolint:errcheck // strings.Builder
 		b.WriteString(`</div>`) //nolint:errcheck // strings.Builder
 	} else {
+		w.Header().Set("HX-Refresh", "true")
 		b.WriteString(`<div class="alert alert-success">Settings updated successfully</div>`) //nolint:errcheck // strings.Builder
 	}
 	for _, warn := range warnings {
