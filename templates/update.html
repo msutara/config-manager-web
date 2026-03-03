@@ -64,7 +64,7 @@
 <h3>Configuration</h3>
 <div class="card">
     <table class="info-table">
-        {{ if and (not .ConfigErr) .Config.SecurityAvailable (derefBool .Config.SecurityAvailable) }}
+        {{ if and (not .ConfigErr) (derefBool .Config.SecurityAvailable) }}
         <tr>
             <td>Security Source</td>
             <td>{{ if .Config.SecuritySource }}{{ .Config.SecuritySource }}{{ else }}N/A{{ end }}</td>
@@ -99,7 +99,7 @@
                    placeholder="e.g. 0 3 * * *"
                    class="form-input">
         </div>
-        {{ if and (not .ConfigErr) .Config.SecurityAvailable (derefBool .Config.SecurityAvailable) }}
+        {{ if and (not .ConfigErr) (derefBool .Config.SecurityAvailable) }}
         <div class="form-group">
             <label for="auto_security">Auto Security Updates</label>
             <input type="hidden" name="auto_security_original" value="{{ if .Config.AutoSecurity }}{{ if derefBool .Config.AutoSecurity }}true{{ else }}false{{ end }}{{ end }}">
