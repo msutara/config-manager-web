@@ -985,6 +985,83 @@ func TestUpdatePage_SecurityHiddenWhenUnavailable(t *testing.T) {
 	if strings.Contains(w.Body.String(), "Run Security Update") {
 		t.Fatal("security update button should be hidden when unavailable")
 	}
+	if strings.Contains(w.Body.String(), "Auto Security Updates") {
+		t.Fatal("auto_security form field should be hidden when unavailable")
+	}
+	if strings.Contains(w.Body.String(), "Security Source") {
+		t.Fatal("security_source form field should be hidden when unavailable")
+	}
+}
+
+func TestUpdatePage_SecurityShownWhenAvailable(t *testing.T) {
+	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/v1/plugins/update/status":
+			json.NewEncoder(w).Encode([]PendingUpdate{
+				{Package: "vim", CurrentVersion: "9.0.1", NewVersion: "9.0.2"},
+			})
+		case "/api/v1/plugins/update/logs":
+			json.NewEncoder(w).Encode(RunStatus{})
+		case "/api/v1/plugins/update/config":
+			json.NewEncoder(w).Encode(UpdateConfig{SecurityAvailable: boolPtr(true)})
+		}
+	}))
+	defer api.Close()
+
+	h := newTestHandler(t, api.URL, "")
+	req := httptest.NewRequest(http.MethodGet, "/update", nil)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", w.Code)
+	}
+	body := w.Body.String()
+	if !strings.Contains(body, "Run Security Update") {
+		t.Fatal("security update button should be visible when available")
+	}
+	if !strings.Contains(body, "Auto Security Updates") {
+		t.Fatal("auto_security form field should be visible when available")
+	}
+	if !strings.Contains(body, "Security Source") {
+		t.Fatal("security_source form field should be visible when available")
+	}
+}
+
+func TestUpdatePage_SecurityHiddenWhenNil(t *testing.T) {
+	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/v1/plugins/update/status":
+			json.NewEncoder(w).Encode([]PendingUpdate{
+				{Package: "vim", CurrentVersion: "9.0.1", NewVersion: "9.0.2"},
+			})
+		case "/api/v1/plugins/update/logs":
+			json.NewEncoder(w).Encode(RunStatus{})
+		case "/api/v1/plugins/update/config":
+			// SecurityAvailable omitted → nil (fail-closed).
+			json.NewEncoder(w).Encode(UpdateConfig{})
+		}
+	}))
+	defer api.Close()
+
+	h := newTestHandler(t, api.URL, "")
+	req := httptest.NewRequest(http.MethodGet, "/update", nil)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", w.Code)
+	}
+	body := w.Body.String()
+	if strings.Contains(body, "Run Security Update") {
+		t.Fatal("security update button should be hidden when SecurityAvailable is nil")
+	}
+	if strings.Contains(body, "Auto Security Updates") {
+		t.Fatal("auto_security form field should be hidden when SecurityAvailable is nil")
+	}
+	if strings.Contains(body, "Security Source") {
+		t.Fatal("security_source form field should be hidden when SecurityAvailable is nil")
+	}
 }
 
 func TestUpdatePage_PartialAPIFailure(t *testing.T) {
