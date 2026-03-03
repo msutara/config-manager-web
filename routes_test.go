@@ -2132,8 +2132,8 @@ func TestUpdateSettings_InvalidCronRejected(t *testing.T) {
 
 	h.ServeHTTP(w, req)
 
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200 (htmx swap), got %d: %s", w.Code, w.Body.String())
 	}
 	if apiCalled {
 		t.Error("API should not have been called for invalid cron")
@@ -2144,13 +2144,24 @@ func TestUpdateSettings_InvalidCronRejected(t *testing.T) {
 }
 
 func TestUpdateSettings_ShortcutScheduleAccepted(t *testing.T) {
-	var gotBody map[string]any
+	apiCalled := false
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/v1/plugins", func(w http.ResponseWriter, _ *http.Request) {
 		json.NewEncoder(w).Encode([]PluginInfo{})
 	})
 	mux.HandleFunc("/api/v1/plugins/update/settings", func(w http.ResponseWriter, r *http.Request) {
-		json.NewDecoder(r.Body).Decode(&gotBody)
+		apiCalled = true
+		var payload struct {
+			Key   string `json:"key"`
+			Value any    `json:"value"`
+		}
+		json.NewDecoder(r.Body).Decode(&payload)
+		if payload.Key != "schedule" {
+			t.Errorf("expected key=schedule, got %q", payload.Key)
+		}
+		if payload.Value != "@daily" {
+			t.Errorf("expected value=@daily, got %v", payload.Value)
+		}
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte(`{"status":"ok"}`))
 	})
@@ -2171,5 +2182,8 @@ func TestUpdateSettings_ShortcutScheduleAccepted(t *testing.T) {
 
 	if w.Code >= 400 {
 		t.Fatalf("expected success, got %d: %s", w.Code, w.Body.String())
+	}
+	if !apiCalled {
+		t.Error("API settings endpoint should have been called")
 	}
 }

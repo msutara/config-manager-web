@@ -369,7 +369,6 @@ func validateWebCronExpr(expr string) error {
 func (h *Handler) handleUpdateSettings(w http.ResponseWriter, r *http.Request) {
 	if err := r.ParseForm(); err != nil {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		w.WriteHeader(http.StatusBadRequest)
 		_, _ = w.Write([]byte(`<div class="alert alert-error">Invalid form data</div>`)) //nolint:errcheck // HTTP write
 		return
 	}
@@ -388,7 +387,6 @@ func (h *Handler) handleUpdateSettings(w http.ResponseWriter, r *http.Request) {
 	if schedule != origSchedule {
 		if err := validateWebCronExpr(schedule); err != nil {
 			w.Header().Set("Content-Type", "text/html; charset=utf-8")
-			w.WriteHeader(http.StatusBadRequest)
 			safeErr := html.EscapeString(err.Error())
 			_, _ = w.Write([]byte(`<div class="alert alert-error">` + safeErr + `</div>`)) //nolint:errcheck // HTTP write
 			return
