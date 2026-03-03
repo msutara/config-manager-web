@@ -337,12 +337,38 @@ func (h *Handler) handleUpdateRun(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("HX-Refresh", "true")
 }
 
+// cronShortcuts are the standard @-shortcuts accepted by the core scheduler.
+var cronShortcuts = map[string]bool{
+	"@yearly": true, "@annually": true, "@monthly": true,
+	"@weekly": true, "@daily": true, "@midnight": true, "@hourly": true,
+}
+
+// validateWebCronExpr checks that expr is a valid cron expression structurally.
+// It accepts the standard 5-field format, @-shortcuts, and empty strings (to
+// clear a schedule).
+func validateWebCronExpr(expr string) error {
+	trimmed := strings.TrimSpace(expr)
+	if trimmed == "" {
+		return nil // empty = clear schedule
+	}
+	if cronShortcuts[strings.ToLower(trimmed)] {
+		return nil
+	}
+	fields := strings.Fields(trimmed)
+	if len(fields) != 5 {
+		return fmt.Errorf(
+			"Invalid schedule: expected 5 fields (minute hour dom month dow), got %d"+
+				"; if your expression has a seconds field, remove it",
+			len(fields))
+	}
+	return nil
+}
+
 // handleUpdateSettings saves individual update plugin settings via the
 // settings API and returns an htmx HTML fragment with the result.
 func (h *Handler) handleUpdateSettings(w http.ResponseWriter, r *http.Request) {
 	if err := r.ParseForm(); err != nil {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		w.WriteHeader(http.StatusBadRequest)
 		_, _ = w.Write([]byte(`<div class="alert alert-error">Invalid form data</div>`)) //nolint:errcheck // HTTP write
 		return
 	}
@@ -359,6 +385,12 @@ func (h *Handler) handleUpdateSettings(w http.ResponseWriter, r *http.Request) {
 	schedule := r.FormValue("schedule")
 	origSchedule := r.FormValue("schedule_original")
 	if schedule != origSchedule {
+		if err := validateWebCronExpr(schedule); err != nil {
+			w.Header().Set("Content-Type", "text/html; charset=utf-8")
+			safeErr := html.EscapeString(err.Error())
+			_, _ = w.Write([]byte(`<div class="alert alert-error">` + safeErr + `</div>`)) //nolint:errcheck // HTTP write
+			return
+		}
 		changes = append(changes, settingChange{key: "schedule", value: schedule})
 	}
 
