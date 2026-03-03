@@ -145,7 +145,7 @@ into the target element. This avoids full page reloads.
 
 ## Styling
 
-- Dark theme via embedded CSS stylesheet
+- Dark theme via embedded CSS stylesheet using custom properties for the colour palette
 - Responsive layout with collapsible sidebar on mobile
 - No CSS framework dependency
 
