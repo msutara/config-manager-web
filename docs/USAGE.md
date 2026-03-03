@@ -53,6 +53,18 @@ View network interface and connectivity information:
 - **Interfaces** — table of network interfaces with state, address, gateway
 - **DNS Servers** — configured nameservers and search domains
 
+#### Generic Plugin Pages
+
+Any plugin registered with CM Core whose name matches `[a-z][a-z0-9-]*`
+is automatically accessible via `/{plugin-name}` in the web UI, with actions
+rendered dynamically from plugin metadata, **unless** that path conflicts with
+an existing built-in route. Built-in routes (such as `/login`, `/update`,
+`/network`) always take precedence. Plugin actions that require POSTs are
+exposed under `/{plugin-name}/actions/<action-path>` and invoked by the UI.
+The Update and Network pages above are hardcoded examples; additional plugins
+that follow the naming rule and do not conflict with built-in routes appear
+without code changes.
+
 ## Browser Support
 
 The web UI works in any modern browser (Chrome, Firefox, Safari, Edge).
