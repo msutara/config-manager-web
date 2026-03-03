@@ -111,7 +111,7 @@
             <input type="hidden" name="security_source_original" value="{{ .Config.SecuritySource }}">
             <select id="security_source" name="security_source" class="form-input">
                 {{ if not .Config.SecuritySource }}<option value="" selected>— unchanged —</option>{{ end }}
-                <option value="available"{{ if eq .Config.SecuritySource "available" }} selected{{ end }}>Available</option>
+                <option value="detected"{{ if eq .Config.SecuritySource "detected" }} selected{{ end }}>Detected</option>
                 <option value="always"{{ if eq .Config.SecuritySource "always" }} selected{{ end }}>Always</option>
             </select>
         </div>

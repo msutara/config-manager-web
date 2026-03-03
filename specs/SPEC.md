@@ -92,7 +92,7 @@ Settings (editable form with htmx):
 
 - **Schedule** — cron expression (text input)
 - **Auto Security Updates** — enabled/disabled (select)
-- **Security Source** — available/always (select)
+- **Security Source** — detected/always (select)
 
 Each setting change calls `PUT /api/v1/plugins/update/settings` with `{key, value}`.
 The form submits via htmx and displays success/error/warning messages inline.
@@ -104,7 +104,7 @@ unchanged fields are not re-submitted, avoiding redundant API calls.
 Clearing the schedule (empty value when original was non-empty) sends an
 explicit empty value to the API.
 Input validation rejects invalid enum values (auto_security must be `true`/`false`,
-security_source must be `available`/`always`).
+security_source must be `detected`/`always`).
 All API-provided data (errors, warnings) is escaped with `html.EscapeString` before
 rendering to prevent XSS.
 
