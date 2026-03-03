@@ -2056,13 +2056,13 @@ func TestAPIClient_PutFriendlyError(t *testing.T) {
 
 func TestValidateWebCronExpr_ValidFormats(t *testing.T) {
 	valid := []string{
-		"",              // empty = clear schedule
-		"0 3 * * *",     // standard 5-field
-		"*/15 * * * *",  // step values
-		"0 0 * * 1-5",   // range
-		"@daily",        // lowercase shortcut
-		"@Weekly",       // mixed case
-		"@HOURLY",       // uppercase
+		"",             // empty = clear schedule
+		"0 3 * * *",    // standard 5-field
+		"*/15 * * * *", // step values
+		"0 0 * * 1-5",  // range
+		"@daily",       // lowercase shortcut
+		"@Weekly",      // mixed case
+		"@HOURLY",      // uppercase
 		"@annually",
 		"@midnight",
 		"@monthly",
@@ -2077,10 +2077,10 @@ func TestValidateWebCronExpr_ValidFormats(t *testing.T) {
 
 func TestValidateWebCronExpr_InvalidFormats(t *testing.T) {
 	invalid := []string{
-		"0 2 * * * MON",   // 6-field Quartz
-		"* * * * * * *",   // 7-field
-		"not-a-cron",      // garbage (1 field)
-		"0 2 *",           // 3 fields
+		"0 2 * * * MON", // 6-field Quartz
+		"* * * * * * *", // 7-field
+		"not-a-cron",    // garbage (1 field)
+		"0 2 *",         // 3 fields
 	}
 	for _, expr := range invalid {
 		if err := validateWebCronExpr(expr); err == nil {
@@ -2123,7 +2123,7 @@ func TestUpdateSettings_InvalidCronRejected(t *testing.T) {
 	h := newTestHandler(t, api.URL, "")
 	form := url.Values{
 		"schedule":          {"0 2 * * * MON"}, // 6-field
-		"schedule_original": {"0 3 * * *"},      // different → change detected
+		"schedule_original": {"0 3 * * *"},     // different → change detected
 	}
 	body := strings.NewReader(form.Encode())
 	req := httptest.NewRequest(http.MethodPost, "/update/settings", body)
