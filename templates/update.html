@@ -92,11 +92,11 @@
           hx-swap="innerHTML"
           hx-indicator="#settings-spinner">
         <div class="form-group">
-            <label for="schedule">Cron Schedule</label>
+            <label for="schedule">Cron Schedule (5 fields: min hr dom mon dow)</label>
             <input type="hidden" name="schedule_original" value="{{ .Config.Schedule }}">
             <input type="text" id="schedule" name="schedule"
                    value="{{ .Config.Schedule }}"
-                   placeholder="e.g. 0 3 * * *"
+                   placeholder="e.g. 0 3 * * * or @daily"
                    class="form-input">
         </div>
         {{ if and (not .ConfigErr) (derefBool .Config.SecurityAvailable) }}

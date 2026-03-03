@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -1936,7 +1937,7 @@ func TestUpdateSettings_ValidationStatusCodes(t *testing.T) {
 	}{
 		{"invalid auto_security", "auto_security=yes", http.StatusOK, "No valid settings"},
 		{"invalid security_source", "security_source=custom", http.StatusOK, "No valid settings"},
-		{"valid schedule", "schedule=daily", http.StatusOK, "Settings updated"},
+		{"valid schedule", "schedule=0+3+*+*+*&schedule_original=old", http.StatusOK, "Settings updated"},
 	}
 
 	for _, tt := range tests {
@@ -1954,5 +1955,221 @@ func TestUpdateSettings_ValidationStatusCodes(t *testing.T) {
 				t.Errorf("expected %q in response, got %q", tt.wantString, w.Body.String())
 			}
 		})
+	}
+}
+
+// ---------------------------------------------------------------------------
+// friendlyAPIError extraction tests
+// ---------------------------------------------------------------------------
+
+func TestFriendlyAPIError_EnvelopeExtracted(t *testing.T) {
+	body := []byte(`{"error":{"code":"job_not_found","message":"Job 'update.security' not found","details":{}}}`)
+	err := friendlyAPIError("GET", "/test", 404, body)
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	want := "Job 'update.security' not found"
+	if err.Error() != want {
+		t.Errorf("got %q, want %q", err.Error(), want)
+	}
+}
+
+func TestFriendlyAPIError_PlainBodyFallback(t *testing.T) {
+	body := []byte(`not json`)
+	err := friendlyAPIError("GET", "/test", 500, body)
+	if !strings.Contains(err.Error(), "not json") {
+		t.Errorf("expected raw body in fallback, got %q", err.Error())
+	}
+}
+
+func TestFriendlyAPIError_EmptyMessage(t *testing.T) {
+	body := []byte(`{"error":{"code":"unknown","message":""}}`)
+	err := friendlyAPIError("GET", "/test", 500, body)
+	// Empty message → fallback to full body
+	if !strings.Contains(err.Error(), "unknown") {
+		t.Errorf("expected fallback with body, got %q", err.Error())
+	}
+}
+
+// ---------------------------------------------------------------------------
+// API client integration: verify friendly errors via HTTP error methods
+// ---------------------------------------------------------------------------
+
+func TestAPIClient_GetFriendlyError(t *testing.T) {
+	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusNotFound)
+		w.Write([]byte(`{"error":{"code":"not_found","message":"resource not found"}}`))
+	}))
+	defer api.Close()
+
+	c := newAPIClient(api.URL, "")
+	var dst map[string]any
+	err := c.get(context.Background(), "/test", &dst)
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if err.Error() != "resource not found" {
+		t.Errorf("want friendly message, got %q", err.Error())
+	}
+}
+
+func TestAPIClient_PostFriendlyError(t *testing.T) {
+	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		w.Write([]byte(`{"error":{"code":"invalid","message":"bad schedule"}}`))
+	}))
+	defer api.Close()
+
+	c := newAPIClient(api.URL, "")
+	err := c.post(context.Background(), "/test", nil, nil)
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if err.Error() != "bad schedule" {
+		t.Errorf("want friendly message, got %q", err.Error())
+	}
+}
+
+func TestAPIClient_PutFriendlyError(t *testing.T) {
+	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusUnprocessableEntity)
+		w.Write([]byte(`{"error":{"code":"validation","message":"invalid value"}}`))
+	}))
+	defer api.Close()
+
+	c := newAPIClient(api.URL, "")
+	err := c.put(context.Background(), "/test", nil, nil)
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if err.Error() != "invalid value" {
+		t.Errorf("want friendly message, got %q", err.Error())
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Cron validation tests
+// ---------------------------------------------------------------------------
+
+func TestValidateWebCronExpr_ValidFormats(t *testing.T) {
+	valid := []string{
+		"",              // empty = clear schedule
+		"0 3 * * *",     // standard 5-field
+		"*/15 * * * *",  // step values
+		"0 0 * * 1-5",   // range
+		"@daily",        // lowercase shortcut
+		"@Weekly",       // mixed case
+		"@HOURLY",       // uppercase
+		"@annually",
+		"@midnight",
+		"@monthly",
+		"@yearly",
+	}
+	for _, expr := range valid {
+		if err := validateWebCronExpr(expr); err != nil {
+			t.Errorf("expected %q to be valid, got: %v", expr, err)
+		}
+	}
+}
+
+func TestValidateWebCronExpr_InvalidFormats(t *testing.T) {
+	invalid := []string{
+		"0 2 * * * MON",   // 6-field Quartz
+		"* * * * * * *",   // 7-field
+		"not-a-cron",      // garbage (1 field)
+		"0 2 *",           // 3 fields
+	}
+	for _, expr := range invalid {
+		if err := validateWebCronExpr(expr); err == nil {
+			t.Errorf("expected %q to be invalid", expr)
+		}
+	}
+}
+
+func TestValidateWebCronExpr_SixFieldErrorMessage(t *testing.T) {
+	err := validateWebCronExpr("0 2 * * * MON")
+	if err == nil {
+		t.Fatal("expected error for 6-field expression")
+	}
+	if !strings.Contains(err.Error(), "got 6") {
+		t.Errorf("error should mention 6 fields: %v", err)
+	}
+	if !strings.Contains(err.Error(), "seconds field") {
+		t.Errorf("error should hint about seconds field: %v", err)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Integration: cron validation rejects bad schedule in handleUpdateSettings
+// ---------------------------------------------------------------------------
+
+func TestUpdateSettings_InvalidCronRejected(t *testing.T) {
+	// API should never be called because validation rejects the schedule.
+	apiCalled := false
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/v1/plugins", func(w http.ResponseWriter, _ *http.Request) {
+		json.NewEncoder(w).Encode([]PluginInfo{})
+	})
+	mux.HandleFunc("/api/v1/plugins/update/settings", func(w http.ResponseWriter, _ *http.Request) {
+		apiCalled = true
+		w.WriteHeader(http.StatusOK)
+	})
+	api := httptest.NewServer(mux)
+	defer api.Close()
+
+	h := newTestHandler(t, api.URL, "")
+	form := url.Values{
+		"schedule":          {"0 2 * * * MON"}, // 6-field
+		"schedule_original": {"0 3 * * *"},      // different → change detected
+	}
+	body := strings.NewReader(form.Encode())
+	req := httptest.NewRequest(http.MethodPost, "/update/settings", body)
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	w := httptest.NewRecorder()
+
+	h.ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
+	}
+	if apiCalled {
+		t.Error("API should not have been called for invalid cron")
+	}
+	if !strings.Contains(w.Body.String(), "got 6") {
+		t.Errorf("response should mention field count: %s", w.Body.String())
+	}
+}
+
+func TestUpdateSettings_ShortcutScheduleAccepted(t *testing.T) {
+	var gotBody map[string]any
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/v1/plugins", func(w http.ResponseWriter, _ *http.Request) {
+		json.NewEncoder(w).Encode([]PluginInfo{})
+	})
+	mux.HandleFunc("/api/v1/plugins/update/settings", func(w http.ResponseWriter, r *http.Request) {
+		json.NewDecoder(r.Body).Decode(&gotBody)
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`{"status":"ok"}`))
+	})
+	api := httptest.NewServer(mux)
+	defer api.Close()
+
+	h := newTestHandler(t, api.URL, "")
+	form := url.Values{
+		"schedule":          {"@daily"},
+		"schedule_original": {"0 3 * * *"},
+	}
+	body := strings.NewReader(form.Encode())
+	req := httptest.NewRequest(http.MethodPost, "/update/settings", body)
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	w := httptest.NewRecorder()
+
+	h.ServeHTTP(w, req)
+
+	if w.Code >= 400 {
+		t.Fatalf("expected success, got %d: %s", w.Code, w.Body.String())
 	}
 }

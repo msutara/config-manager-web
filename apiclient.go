@@ -33,6 +33,26 @@ func newAPIClient(baseURL, token string) *apiClient {
 	}
 }
 
+// apiErrorEnvelope matches the standard error JSON from the core API:
+//
+//	{"error":{"code":"...","message":"..."}}
+type apiErrorEnvelope struct {
+	Error struct {
+		Message string `json:"message"`
+	} `json:"error"`
+}
+
+// friendlyAPIError extracts a human-readable message from a raw JSON error
+// body.  If the body is a well-formed error envelope with a message, only the
+// message is returned.  Otherwise it falls back to the full body.
+func friendlyAPIError(method, path string, status int, body []byte) error {
+	var env apiErrorEnvelope
+	if json.Unmarshal(body, &env) == nil && env.Error.Message != "" {
+		return fmt.Errorf("%s", env.Error.Message)
+	}
+	return fmt.Errorf("api %s returned %d: %s", path, status, body)
+}
+
 // get performs an authenticated GET and decodes JSON into dst.
 func (c *apiClient) get(ctx context.Context, path string, dst any) error {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL+path, nil)
@@ -54,7 +74,7 @@ func (c *apiClient) get(ctx context.Context, path string, dst any) error {
 		if loc := resp.Header.Get("Location"); loc != "" && resp.StatusCode >= 300 && resp.StatusCode < 400 {
 			return fmt.Errorf("api %s returned %d redirect to %s: %s", path, resp.StatusCode, loc, respBody)
 		}
-		return fmt.Errorf("api %s returned %d: %s", path, resp.StatusCode, respBody)
+		return friendlyAPIError("GET", path, resp.StatusCode, respBody)
 	}
 
 	if dst != nil {
@@ -92,7 +112,7 @@ func (c *apiClient) post(ctx context.Context, path string, body io.Reader, dst a
 		if loc := resp.Header.Get("Location"); loc != "" && resp.StatusCode >= 300 && resp.StatusCode < 400 {
 			return fmt.Errorf("api %s returned %d redirect to %s: %s", path, resp.StatusCode, loc, respBody)
 		}
-		return fmt.Errorf("api %s returned %d: %s", path, resp.StatusCode, respBody)
+		return friendlyAPIError("POST", path, resp.StatusCode, respBody)
 	}
 
 	if dst != nil && resp.StatusCode != http.StatusNoContent {
@@ -129,7 +149,7 @@ func (c *apiClient) put(ctx context.Context, path string, body io.Reader, dst an
 		if loc := resp.Header.Get("Location"); loc != "" && resp.StatusCode >= 300 && resp.StatusCode < 400 {
 			return fmt.Errorf("api %s returned %d redirect to %s: %s", path, resp.StatusCode, loc, respBody)
 		}
-		return fmt.Errorf("api %s returned %d: %s", path, resp.StatusCode, respBody)
+		return friendlyAPIError("PUT", path, resp.StatusCode, respBody)
 	}
 
 	if dst != nil && resp.StatusCode != http.StatusNoContent {
