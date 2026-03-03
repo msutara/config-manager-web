@@ -37,7 +37,7 @@ Below the actions, the **Edit Settings** form allows changing:
 
 - **Cron Schedule** — when automated updates run (e.g. `0 3 * * *` for 3 AM daily)
 - **Auto Security Updates** — enable or disable automatic security updates
-- **Security Source** — whether to use `available` (OS-provided) or `always` check
+- **Security Source** — whether to use `detected` (OS-provided) or `always` check
 
 Changes are saved immediately via the core API and take effect on next schedule tick.
 Only fields that differ from their original values are sent, preventing redundant API

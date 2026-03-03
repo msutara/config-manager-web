@@ -367,7 +367,7 @@ func (h *Handler) handleUpdateSettings(w http.ResponseWriter, r *http.Request) {
 			changes = append(changes, settingChange{key: "auto_security", value: v == "true"})
 		}
 	}
-	if v := r.FormValue("security_source"); v == "available" || v == "always" {
+	if v := r.FormValue("security_source"); v == "detected" || v == "always" {
 		if orig := r.FormValue("security_source_original"); orig == "" || orig != v {
 			changes = append(changes, settingChange{key: "security_source", value: v})
 		}

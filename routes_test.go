@@ -85,7 +85,7 @@ func mockAPI(t *testing.T) *httptest.Server {
 		json.NewEncoder(w).Encode(UpdateConfig{
 			SecurityAvailable: boolPtr(true),
 			AutoSecurity:      boolPtr(true),
-			SecuritySource:    "available",
+			SecuritySource:    "detected",
 			Schedule:          "0 3 * * *",
 		})
 	})
@@ -1174,7 +1174,7 @@ func TestUpdateSettings_HappyPath(t *testing.T) {
 	defer api.Close()
 
 	h := newTestHandler(t, api.URL, "")
-	body := strings.NewReader("schedule=0+4+*+*+*&schedule_original=0+3+*+*+*&auto_security=true&auto_security_original=false&security_source=always&security_source_original=available")
+	body := strings.NewReader("schedule=0+4+*+*+*&schedule_original=0+3+*+*+*&auto_security=true&auto_security_original=false&security_source=always&security_source_original=detected")
 	req := httptest.NewRequest(http.MethodPost, "/update/settings", body)
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	w := httptest.NewRecorder()
@@ -1822,7 +1822,7 @@ func TestUpdateSettings_PartialFailure(t *testing.T) {
 	defer api.Close()
 
 	h := newTestHandler(t, api.URL, "")
-	body := strings.NewReader("schedule=0+3+*+*+*&schedule_original=0+5+*+*+*&auto_security=true&auto_security_original=false&security_source=always&security_source_original=available")
+	body := strings.NewReader("schedule=0+3+*+*+*&schedule_original=0+5+*+*+*&auto_security=true&auto_security_original=false&security_source=always&security_source_original=detected")
 	req := httptest.NewRequest(http.MethodPost, "/update/settings", body)
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	w := httptest.NewRecorder()
