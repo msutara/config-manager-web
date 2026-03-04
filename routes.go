@@ -87,6 +87,10 @@ func validateRoutePrefix(prefix string) error {
 	if err != nil {
 		return fmt.Errorf("invalid percent-encoding in route prefix: %w", err)
 	}
+	// Reject remaining percent signs (double-encoding attempt).
+	if strings.Contains(decoded, "%") {
+		return fmt.Errorf("route prefix contains suspicious encoding")
+	}
 	if strings.Contains(decoded, "..") {
 		return fmt.Errorf("route prefix contains path traversal")
 	}
