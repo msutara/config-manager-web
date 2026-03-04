@@ -12,6 +12,41 @@ headless Debian-based nodes (Raspbian Bookworm ARM, Debian Bullseye slim).
 - Cookie-based authentication using the same Bearer token as the API
 - Responsive dark theme — works on phones, tablets, and desktops
 - Server-rendered with htmx — no JavaScript build step required
+- Dynamic plugin sidebar — auto-discovers plugins from the core API registry
+
+## Architecture
+
+### Plugin list caching
+
+The sidebar plugin list is cached with a **30-second TTL** to avoid repeated
+API calls on every page load. When the TTL expires, the next request refreshes
+the cache from the core API. A **refresh mutex** prevents thundering-herd: if
+multiple requests arrive while the cache is expired, only one goroutine fetches
+from the API while the others wait and then read the refreshed cache.
+
+### Sidebar resilience
+
+The sidebar degrades gracefully when the core API is unavailable:
+
+1. **Fresh cache** — served directly, no API call.
+2. **Expired (stale) cache** — if the API fetch fails, the last-known plugin
+   list is returned regardless of TTL expiry, keeping the sidebar populated.
+3. **No cached data at all** — the template displays a "plugins unavailable"
+   message instead of an empty sidebar.
+
+### Concurrency limits
+
+Generic plugin pages fetch all GET endpoints concurrently. A **semaphore**
+(channel of size 10) caps the number of in-flight API calls per request,
+preventing a plugin with many endpoints from overwhelming the core API.
+
+### RoutePrefix validation
+
+Plugin registry entries include a `RoutePrefix` used to build API paths.
+Before caching, each prefix is validated: it must start with `/`, must not
+contain path-traversal sequences (`..`, including percent-encoded variants),
+and must not contain control characters. Entries that fail validation are
+dropped with a warning log.
 
 ## Documentation
 
