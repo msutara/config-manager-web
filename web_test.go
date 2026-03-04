@@ -312,6 +312,7 @@ func TestSidebarUsesStaleCache_WhenAPIDown(t *testing.T) {
 			json.NewEncoder(w).Encode(NodeInfo{Hostname: "test"})
 		}
 	}))
+	t.Cleanup(api.Close)
 
 	h := NewHandler(api.URL, "").(*Handler)
 
