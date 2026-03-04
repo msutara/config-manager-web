@@ -247,7 +247,7 @@ func (h *Handler) fetchPlugins(r *http.Request) ([]PluginInfo, error) {
 		return nil, err
 	}
 	// Validate route prefixes before caching — reject malicious entries.
-	valid := plugins[:0]
+	valid := make([]PluginInfo, 0, len(plugins))
 	for _, p := range plugins {
 		if err := validateRoutePrefix(p.RoutePrefix); err != nil {
 			slog.Warn("web: dropping plugin with invalid RoutePrefix",

@@ -189,7 +189,7 @@ func TestValidateRoutePrefix(t *testing.T) {
 		{"dot segment trailing", "/api/v1/.", true},
 		{"dot segment double slash", "/api//v1", true},
 		{"trailing slash valid", "/api/v1/plugins/update/", false},
-		{"root slash valid", "/", false},
+		{"bare root slash rejected", "/", true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

@@ -104,7 +104,7 @@ func validateRoutePrefix(prefix string) error {
 	// trailing slashes are valid in route prefixes.
 	trimmed := strings.TrimRight(decoded, "/")
 	if trimmed == "" {
-		trimmed = "/"
+		return fmt.Errorf("route prefix must not be bare \"/\" (use a meaningful namespace)")
 	}
 	if cleaned := path.Clean(trimmed); cleaned != trimmed {
 		return fmt.Errorf("route prefix is not canonical (contains dot segments or redundant slashes)")
