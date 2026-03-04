@@ -185,6 +185,11 @@ func TestValidateRoutePrefix(t *testing.T) {
 		{"double encoded traversal", "/api/%252e%252e/secret", true},
 		{"control character", "/api/\x00foo", true},
 		{"clean prefix", "/api/v1/plugins/network", false},
+		{"dot segment single", "/api/./v1", true},
+		{"dot segment trailing", "/api/v1/.", true},
+		{"dot segment double slash", "/api//v1", true},
+		{"trailing slash valid", "/api/v1/plugins/update/", false},
+		{"root slash valid", "/", false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

@@ -313,9 +313,7 @@ func TestSidebarUsesStaleCache_WhenAPIDown(t *testing.T) {
 		}
 	}))
 
-	// Use a very short TTL so it expires quickly.
 	h := NewHandler(api.URL, "").(*Handler)
-	h.cache.ttl = 1 * time.Millisecond
 
 	// Prime the cache with a successful request.
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
@@ -328,9 +326,11 @@ func TestSidebarUsesStaleCache_WhenAPIDown(t *testing.T) {
 		t.Fatal("first request should show firewall link")
 	}
 
-	// Shut down the API and wait for cache to expire.
+	// Shut down the API and force cache expiry deterministically.
 	api.Close()
-	time.Sleep(5 * time.Millisecond)
+	h.cache.mu.Lock()
+	h.cache.fetchedAt = time.Now().Add(-h.cache.ttl - time.Second)
+	h.cache.mu.Unlock()
 
 	// Verify cache is expired via get().
 	if _, ok := h.cache.get(); ok {
@@ -369,7 +369,11 @@ func TestFetchPlugins_DoubleCheck(t *testing.T) {
 	defer api.Close()
 
 	h := NewHandler(api.URL, "").(*Handler)
-	h.cache.ttl = 1 * time.Millisecond
+	// Use a long TTL so the cache stays valid after the first fetch.
+	// With a tiny TTL the cache could expire between the first goroutine's
+	// fetch and the remaining goroutines' double-check, causing multiple
+	// API calls and flaky failures.
+	h.cache.ttl = 5 * time.Second
 
 	const goroutines = 20
 	var wg sync.WaitGroup

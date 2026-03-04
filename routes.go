@@ -99,6 +99,16 @@ func validateRoutePrefix(prefix string) error {
 			return fmt.Errorf("route prefix contains control character")
 		}
 	}
+	// Reject dot-segments (e.g. /./foo or /foo/.) by canonicalizing and comparing.
+	// Trim trailing slash before comparing since path.Clean removes it but
+	// trailing slashes are valid in route prefixes.
+	trimmed := strings.TrimRight(decoded, "/")
+	if trimmed == "" {
+		trimmed = "/"
+	}
+	if cleaned := path.Clean(trimmed); cleaned != trimmed {
+		return fmt.Errorf("route prefix contains dot segments")
+	}
 	return nil
 }
 
