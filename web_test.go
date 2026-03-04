@@ -387,7 +387,9 @@ func TestFetchPlugins_DoubleCheck(t *testing.T) {
 			defer wg.Done()
 			<-barrier
 			req := httptest.NewRequest(http.MethodGet, "/", nil)
-			_, _ = h.fetchPlugins(req)
+			if _, err := h.fetchPlugins(req); err != nil {
+				t.Errorf("fetchPlugins: %v", err)
+			}
 		}()
 	}
 

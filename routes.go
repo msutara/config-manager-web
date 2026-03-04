@@ -107,7 +107,7 @@ func validateRoutePrefix(prefix string) error {
 		trimmed = "/"
 	}
 	if cleaned := path.Clean(trimmed); cleaned != trimmed {
-		return fmt.Errorf("route prefix contains dot segments")
+		return fmt.Errorf("route prefix is not canonical (contains dot segments or redundant slashes)")
 	}
 	return nil
 }
