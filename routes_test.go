@@ -171,6 +171,36 @@ func TestCleanPluginPath(t *testing.T) {
 	}
 }
 
+func TestValidateRoutePrefix(t *testing.T) {
+	tests := []struct {
+		name    string
+		prefix  string
+		wantErr bool
+	}{
+		{"valid prefix", "/api/v1/plugins/update", false},
+		{"empty", "", true},
+		{"no leading slash", "api/v1", true},
+		{"traversal literal", "/api/../secret", true},
+		{"traversal encoded", "/api/%2e%2e/secret", true},
+		{"double encoded traversal", "/api/%252e%252e/secret", true},
+		{"control character", "/api/\x00foo", true},
+		{"clean prefix", "/api/v1/plugins/network", false},
+		{"dot segment single", "/api/./v1", true},
+		{"dot segment trailing", "/api/v1/.", true},
+		{"dot segment double slash", "/api//v1", true},
+		{"trailing slash valid", "/api/v1/plugins/update/", false},
+		{"bare root slash rejected", "/", true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := validateRoutePrefix(tt.prefix)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("validateRoutePrefix(%q) error = %v, wantErr %v", tt.prefix, err, tt.wantErr)
+			}
+		})
+	}
+}
+
 func TestTitleCase(t *testing.T) {
 	tests := []struct {
 		in   string

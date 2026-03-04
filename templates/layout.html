@@ -21,6 +21,9 @@
             {{ range .Plugins }}{{ if and (ne .Name "update") (ne .Name "network") }}
             <li><a href="/{{ .Name }}" class="{{ if eq $.Page .Name }}active{{ end }}">{{ .Name | title }}</a></li>
             {{ end }}{{ end }}
+            {{ if .PluginsUnavailable }}
+            <li class="nav-notice">Plugins temporarily unavailable</li>
+            {{ end }}
         </ul>
         <div class="sidebar-footer">
             <form method="post" action="/auth/logout">

@@ -1,11 +1,15 @@
 package web
 
 import (
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
+	"time"
 )
 
 func newTestHandler(t *testing.T, apiURL, token string) *Handler {
@@ -291,5 +295,110 @@ func TestFormatUptime(t *testing.T) {
 		if got != tt.want {
 			t.Errorf("formatUptime(%d) = %q, want %q", tt.seconds, got, tt.want)
 		}
+	}
+}
+
+// ---------- Stale cache fallback tests ----------
+
+func TestSidebarUsesStaleCache_WhenAPIDown(t *testing.T) {
+	// Start a real API server that serves plugins.
+	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/v1/plugins":
+			json.NewEncoder(w).Encode([]PluginInfo{
+				{Name: "firewall", Version: "0.1.0", Description: "FW", RoutePrefix: "/api/v1/plugins/firewall"},
+			})
+		case "/api/v1/node":
+			json.NewEncoder(w).Encode(NodeInfo{Hostname: "test"})
+		}
+	}))
+	t.Cleanup(api.Close)
+
+	h := NewHandler(api.URL, "").(*Handler)
+
+	// Prime the cache with a successful request.
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200 on first request, got %d", w.Code)
+	}
+	if !strings.Contains(w.Body.String(), `href="/firewall"`) {
+		t.Fatal("first request should show firewall link")
+	}
+
+	// Shut down the API and force cache expiry deterministically.
+	api.Close()
+	h.cache.mu.Lock()
+	h.cache.fetchedAt = time.Now().Add(-h.cache.ttl - time.Second)
+	h.cache.mu.Unlock()
+
+	// Verify cache is expired via get().
+	if _, ok := h.cache.get(); ok {
+		t.Fatal("cache should be expired")
+	}
+
+	// Request again — API is down, cache is expired. Sidebar should still
+	// show stale data via getAny().
+	req = httptest.NewRequest(http.MethodGet, "/", nil)
+	w = httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200 with stale cache, got %d", w.Code)
+	}
+	if !strings.Contains(w.Body.String(), `href="/firewall"`) {
+		t.Error("sidebar should show stale cached plugins when API is down")
+	}
+}
+
+// ---------- Thundering herd prevention tests ----------
+
+func TestFetchPlugins_DoubleCheck(t *testing.T) {
+	var apiCalls atomic.Int32
+	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/v1/plugins" {
+			apiCalls.Add(1)
+			// Small delay to let goroutines pile up at the lock.
+			time.Sleep(10 * time.Millisecond)
+			json.NewEncoder(w).Encode([]PluginInfo{
+				{Name: "test", Version: "0.1.0", RoutePrefix: "/api/v1/plugins/test"},
+			})
+			return
+		}
+		json.NewEncoder(w).Encode(map[string]string{})
+	}))
+	defer api.Close()
+
+	h := NewHandler(api.URL, "").(*Handler)
+	// Use a long TTL so the cache stays valid after the first fetch.
+	// With a tiny TTL the cache could expire between the first goroutine's
+	// fetch and the remaining goroutines' double-check, causing multiple
+	// API calls and flaky failures.
+	h.cache.ttl = 5 * time.Second
+
+	const goroutines = 20
+	var wg sync.WaitGroup
+	// Barrier: all goroutines start at roughly the same time.
+	barrier := make(chan struct{})
+
+	for range goroutines {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-barrier
+			req := httptest.NewRequest(http.MethodGet, "/", nil)
+			if _, err := h.fetchPlugins(req); err != nil {
+				t.Errorf("fetchPlugins: %v", err)
+			}
+		}()
+	}
+
+	// Release all goroutines simultaneously.
+	close(barrier)
+	wg.Wait()
+
+	calls := apiCalls.Load()
+	if calls != 1 {
+		t.Errorf("expected exactly 1 API call (double-check mutex), got %d", calls)
 	}
 }

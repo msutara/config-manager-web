@@ -12,11 +12,50 @@ import (
 	"log/slog"
 	"net/http"
 	"strings"
+	"sync"
+	"time"
 	"unicode"
 	"unicode/utf8"
 
 	"github.com/go-chi/chi/v5"
 )
+
+// pluginCache holds a TTL-based cache of the plugin registry to avoid
+// repeated API calls on every page load.
+type pluginCache struct {
+	mu        sync.RWMutex
+	plugins   []PluginInfo
+	fetchedAt time.Time
+	ttl       time.Duration
+	refreshMu sync.Mutex // serializes API fetches on cache miss
+}
+
+func (c *pluginCache) get() ([]PluginInfo, bool) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	if time.Since(c.fetchedAt) < c.ttl && c.plugins != nil {
+		return c.plugins, true
+	}
+	return nil, false
+}
+
+func (c *pluginCache) set(plugins []PluginInfo) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.plugins = plugins
+	c.fetchedAt = time.Now()
+}
+
+// getAny returns cached plugins regardless of TTL expiry. Used as fallback
+// when the API is unreachable.
+func (c *pluginCache) getAny() ([]PluginInfo, bool) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	if c.plugins != nil {
+		return c.plugins, true
+	}
+	return nil, false
+}
 
 // Handler serves the web UI and proxies actions to the CM JSON API.
 type Handler struct {
@@ -25,6 +64,7 @@ type Handler struct {
 	authToken string
 	templates map[string]*template.Template
 	client    *apiClient
+	cache     pluginCache
 }
 
 // formatUptime converts seconds to a human-readable "Xd Xh Xm" string.
@@ -70,6 +110,7 @@ func NewHandler(apiURL, authToken string) http.Handler {
 		apiURL:    apiURL,
 		authToken: authToken,
 		client:    newAPIClient(apiURL, authToken),
+		cache:     pluginCache{ttl: 30 * time.Second},
 	}
 
 	funcMap := template.FuncMap{
@@ -183,22 +224,58 @@ func (h *Handler) render(w http.ResponseWriter, name string, data any) {
 	_, _ = w.Write(buf.Bytes()) //nolint:errcheck // HTTP response write
 }
 
-// fetchPlugins retrieves the plugin list from the core API.
+// fetchPlugins retrieves the plugin list from the core API, using a
+// TTL-based cache to avoid repeated calls on every page load. A refresh
+// mutex prevents thundering-herd when multiple requests hit an expired
+// cache simultaneously.
 func (h *Handler) fetchPlugins(r *http.Request) ([]PluginInfo, error) {
+	if cached, ok := h.cache.get(); ok {
+		return cached, nil
+	}
+
+	// Serialize refreshes to prevent thundering herd.
+	h.cache.refreshMu.Lock()
+	defer h.cache.refreshMu.Unlock()
+
+	// Double-check after acquiring lock — another goroutine may have refreshed.
+	if cached, ok := h.cache.get(); ok {
+		return cached, nil
+	}
+
 	var plugins []PluginInfo
 	if err := h.client.get(r.Context(), "/api/v1/plugins", &plugins); err != nil {
 		return nil, err
 	}
+	// Validate route prefixes before caching — reject malicious entries.
+	valid := make([]PluginInfo, 0, len(plugins))
+	for _, p := range plugins {
+		if err := validateRoutePrefix(p.RoutePrefix); err != nil {
+			slog.Warn("web: dropping plugin with invalid RoutePrefix",
+				"plugin", p.Name, "prefix", p.RoutePrefix, "error", err)
+			continue
+		}
+		valid = append(valid, p)
+	}
+	plugins = valid
+	h.cache.set(plugins)
 	return plugins, nil
 }
 
-// withPlugins adds the Plugins list to a template data map.
-// Errors are swallowed because the sidebar degrades gracefully (empty list).
+// withPlugins adds the Plugins list to a template data map with fallback to
+// stale cached data when the API is unreachable. If both the API and cache
+// (including expired entries) are empty, PluginsUnavailable is set so the
+// template can show a message.
 func (h *Handler) withPlugins(r *http.Request, data map[string]any) map[string]any {
 	plugins, err := h.fetchPlugins(r)
 	if err != nil {
-		slog.Debug("web: sidebar plugin fetch failed", "error", err)
+		slog.Debug("web: sidebar plugin fetch failed, trying stale cache", "error", err)
+		if cached, ok := h.cache.getAny(); ok {
+			plugins = cached
+		}
 	}
 	data["Plugins"] = plugins
+	if err != nil && len(plugins) == 0 {
+		data["PluginsUnavailable"] = true
+	}
 	return data
 }

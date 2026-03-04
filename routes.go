@@ -18,6 +18,10 @@ import (
 
 // ---------- Generic plugin handlers ----------
 
+// maxConcurrentAPICalls limits goroutines spawned per request when fetching
+// plugin endpoints concurrently.
+const maxConcurrentAPICalls = 10
+
 // EndpointData holds the result of fetching a single GET endpoint.
 type EndpointData struct {
 	Description string
@@ -66,6 +70,46 @@ func cleanPluginPath(routePrefix, epPath string) string {
 		return ""
 	}
 	return full
+}
+
+// validateRoutePrefix checks that a plugin's RoutePrefix is well-formed and
+// safe. It rejects empty prefixes, missing leading slash, path traversal
+// (including percent-encoded sequences), and control characters.
+func validateRoutePrefix(prefix string) error {
+	if prefix == "" {
+		return fmt.Errorf("empty route prefix")
+	}
+	if !strings.HasPrefix(prefix, "/") {
+		return fmt.Errorf("route prefix must start with /")
+	}
+	// Decode percent-encoding to catch %2e%2e etc.
+	decoded, err := url.PathUnescape(prefix)
+	if err != nil {
+		return fmt.Errorf("invalid percent-encoding in route prefix: %w", err)
+	}
+	// Reject remaining percent signs (double-encoding attempt).
+	if strings.Contains(decoded, "%") {
+		return fmt.Errorf("route prefix contains suspicious encoding")
+	}
+	if strings.Contains(decoded, "..") {
+		return fmt.Errorf("route prefix contains path traversal")
+	}
+	for _, r := range decoded {
+		if unicode.IsControl(r) {
+			return fmt.Errorf("route prefix contains control character")
+		}
+	}
+	// Reject dot-segments (e.g. /./foo or /foo/.) by canonicalizing and comparing.
+	// Trim trailing slash before comparing since path.Clean removes it but
+	// trailing slashes are valid in route prefixes.
+	trimmed := strings.TrimRight(decoded, "/")
+	if trimmed == "" {
+		return fmt.Errorf("route prefix must not be bare \"/\" (use a meaningful namespace)")
+	}
+	if cleaned := path.Clean(trimmed); cleaned != trimmed {
+		return fmt.Errorf("route prefix is not canonical (contains dot segments or redundant slashes)")
+	}
+	return nil
 }
 
 // lookupPlugin fetches the plugin registry and returns the named plugin, or
@@ -129,13 +173,16 @@ func (h *Handler) handleGenericPlugin(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Fetch all GET endpoints concurrently.
+	// Fetch all GET endpoints concurrently with a semaphore to bound
+	// the number of in-flight API calls per request.
 	results := make([]EndpointData, len(getEndpoints))
+	sem := make(chan struct{}, maxConcurrentAPICalls)
 	var wg sync.WaitGroup
 	for i, ep := range getEndpoints {
+		sem <- struct{}{} // acquire
 		wg.Add(1)
 		go func(idx int, ep PluginEndpoint) {
-			defer wg.Done()
+			defer func() { <-sem; wg.Done() }() // release
 			results[idx].Description = ep.Description
 			apiPath := cleanPluginPath(found.RoutePrefix, ep.Path)
 			if apiPath == "" {
@@ -224,6 +271,7 @@ func (h *Handler) handleGenericAction(w http.ResponseWriter, r *http.Request) {
 // ---------- Dashboard ----------
 
 // handleDashboard renders the main dashboard with system info.
+// Only one API call — no semaphore needed.
 func (h *Handler) handleDashboard(w http.ResponseWriter, r *http.Request) {
 	var node NodeInfo
 	nodeErr := h.client.get(r.Context(), "/api/v1/node", &node)
@@ -242,6 +290,7 @@ func (h *Handler) handleDashboard(w http.ResponseWriter, r *http.Request) {
 // ---------- Update plugin ----------
 
 // handleUpdate renders the update manager page.
+// Fixed 3 goroutines — no semaphore needed.
 func (h *Handler) handleUpdate(w http.ResponseWriter, r *http.Request) {
 	var (
 		pending   []PendingUpdate
@@ -458,6 +507,7 @@ func (h *Handler) handleUpdateSettings(w http.ResponseWriter, r *http.Request) {
 // ---------- Network plugin ----------
 
 // handleNetwork renders the network info page.
+// Fixed 3 goroutines — no semaphore needed.
 func (h *Handler) handleNetwork(w http.ResponseWriter, r *http.Request) {
 	var (
 		ifaces    []NetworkInterface
