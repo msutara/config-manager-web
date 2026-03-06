@@ -41,6 +41,33 @@
     <main class="content">
         {{ template "content" . }}
     </main>
+    <div id="toast-container" aria-live="polite">
+        {{ if .Toast }}<output class="toast toast-{{ .Toast.Level }}" role="{{ if eq .Toast.Level "error" }}alert{{ else }}status{{ end }}">{{ .Toast.Message }}</output>{{ end }}
+    </div>
+    <script>
+    document.addEventListener("animationend",function(e){if(e.animationName==="toast-out")e.target.remove()});
+    (function(){
+        function scheduleRemoval(t){
+            if(!t||!t.classList||!t.classList.contains("toast"))return;
+            if(t.dataset.autoremove==="1")return;
+            t.dataset.autoremove="1";
+            setTimeout(function(){t.remove()},6000);
+        }
+        document.querySelectorAll(".toast").forEach(scheduleRemoval);
+        var c=document.getElementById("toast-container");
+        if(c&&window.MutationObserver){
+            new MutationObserver(function(ms){ms.forEach(function(m){
+                m.addedNodes.forEach(function(n){
+                    if(n.nodeType===1){
+                        if(n.classList.contains("toast"))scheduleRemoval(n);
+                        n.querySelectorAll&&n.querySelectorAll(".toast").forEach(scheduleRemoval);
+                    }
+                });
+            })}).observe(c,{childList:true,subtree:true});
+        }
+    })();
+    (function(){var u=new URL(location);if(u.searchParams.has("flash")){u.searchParams.delete("flash");history.replaceState(null,"",u)}})();
+    </script>
 </body>
 </html>
 {{ end }}
