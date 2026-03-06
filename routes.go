@@ -513,6 +513,16 @@ func (h *Handler) handleProgress(w http.ResponseWriter, r *http.Request) {
 		slog.Warn("web: job id mismatch in progress poll", "expected", jobID, "got", run.JobID)
 	}
 
+	// Completed jobs redirect back to the plugin page so the browser
+	// fully re-renders widgets (e.g. "Last Run") with fresh data.
+	// HX-Redirect tells htmx to do a real navigation instead of an
+	// in-place swap (which broke because hx-select="body" cannot
+	// extract <body> from a full HTML document fragment).
+	if run.Status == "completed" {
+		w.Header().Set("HX-Redirect", returnURL)
+		return
+	}
+
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	data := map[string]string{
 		"JobID":      jobID,

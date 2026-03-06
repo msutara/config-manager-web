@@ -153,8 +153,9 @@ uses `hx-trigger="every 2s"` to poll `GET /progress?job={id}` until the
 job completes or fails under normal conditions.
 
 - **Running** — shows spinner + start timestamp, continues polling every 2 seconds
-- **Completed** — shows success alert, auto-navigates to the return URL
-  after 1 second via `hx-get` + `hx-trigger="load delay:1s"`
+- **Completed** — server responds with `HX-Redirect` header pointing to the
+  return URL, causing htmx to perform a full page navigation that re-renders
+  all widgets (e.g. "Last Run") with fresh data
 - **Failed** — shows error alert with message, polling stops (terminal job state)
 - **API error (transient)** — when the poll request itself fails (e.g. core
   temporarily unreachable), shows "Failed to check job status … (retrying…)"
