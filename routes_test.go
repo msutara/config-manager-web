@@ -2953,8 +2953,8 @@ func TestUpdateSettings_ShortcutScheduleAccepted(t *testing.T) {
 
 func TestToastOOB_Format(t *testing.T) {
 	got := toastOOB("success", "It worked!")
-	if !strings.Contains(got, `hx-swap-oob="afterbegin"`) {
-		t.Error("missing OOB swap attribute")
+	if !strings.Contains(got, `hx-swap-oob="afterbegin:#toast-container"`) {
+		t.Error("missing OOB swap attribute with selector")
 	}
 	if !strings.Contains(got, `toast-success`) {
 		t.Error("missing toast level class")

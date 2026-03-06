@@ -41,9 +41,8 @@ func toastOOB(level, message string) string {
 		role = "alert"
 	}
 	safeMsg := html.EscapeString(message)
-	return `<div id="toast-container" hx-swap-oob="afterbegin">` +
-		`<output class="toast toast-` + level + `" role="` + role + `">` + safeMsg + `</output>` +
-		`</div>`
+	return `<output class="toast toast-` + level + `" role="` + role +
+		`" hx-swap-oob="afterbegin:#toast-container">` + safeMsg + `</output>`
 }
 
 // flashToast maps flash query-parameter values to toast content.
@@ -700,7 +699,10 @@ func (h *Handler) handleUpdateSettings(w http.ResponseWriter, r *http.Request) {
 		if len(warnings) > 0 {
 			flash = "settings-partial"
 		}
-		w.Header().Set("HX-Redirect", "/update?flash="+flash)
+		q := url.Values{}
+		q.Set("flash", flash)
+		u := &url.URL{Path: "/update", RawQuery: q.Encode()}
+		w.Header().Set("HX-Redirect", u.String())
 		return
 	}
 
