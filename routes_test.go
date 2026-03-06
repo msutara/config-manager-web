@@ -17,6 +17,20 @@ import (
 // boolPtr is a test helper for creating *bool literals.
 func boolPtr(b bool) *bool { return &b }
 
+// assertSettingsRedirect checks that a successful settings save returns an
+// HX-Redirect with the expected flash param and an empty body.
+func assertSettingsRedirect(t *testing.T, w *httptest.ResponseRecorder, flash string) {
+	t.Helper()
+	redir := w.Header().Get("HX-Redirect")
+	want := "/update?flash=" + flash
+	if redir != want {
+		t.Errorf("expected HX-Redirect %q, got %q", want, redir)
+	}
+	if body := w.Body.String(); body != "" {
+		t.Errorf("expected empty body on redirect, got %q", body)
+	}
+}
+
 // mockAPI creates a test server that simulates the CM JSON API.
 func mockAPI(t *testing.T) *httptest.Server {
 	t.Helper()
@@ -1287,6 +1301,9 @@ func TestUpdateRun_APIError(t *testing.T) {
 	if !strings.Contains(body, "alert-error") {
 		t.Fatal("should render error alert fragment")
 	}
+	if !strings.Contains(body, `hx-swap-oob`) {
+		t.Error("error should include OOB toast")
+	}
 }
 
 func TestUpdateRun_SecurityType(t *testing.T) {
@@ -2003,12 +2020,7 @@ func TestUpdateSettings_HappyPath(t *testing.T) {
 	if w.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", w.Code)
 	}
-	if !strings.Contains(w.Body.String(), "Settings updated successfully") {
-		t.Errorf("expected success message, got %q", w.Body.String())
-	}
-	if w.Header().Get("HX-Refresh") != "true" {
-		t.Error("should set HX-Refresh header on successful settings save")
-	}
+	assertSettingsRedirect(t, w, "settings-saved")
 }
 
 func TestUpdateSettings_SingleField(t *testing.T) {
@@ -2026,12 +2038,7 @@ func TestUpdateSettings_SingleField(t *testing.T) {
 	if w.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", w.Code)
 	}
-	if !strings.Contains(w.Body.String(), "Settings updated successfully") {
-		t.Errorf("expected success, got %q", w.Body.String())
-	}
-	if w.Header().Get("HX-Refresh") != "true" {
-		t.Error("should set HX-Refresh header on successful settings save")
-	}
+	assertSettingsRedirect(t, w, "settings-saved")
 }
 
 func TestUpdateSettings_ScheduleUnchangedSkipped(t *testing.T) {
@@ -2075,9 +2082,7 @@ func TestUpdateSettings_ScheduleUnchangedSkipped(t *testing.T) {
 	if w.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", w.Code)
 	}
-	if !strings.Contains(w.Body.String(), "Settings updated successfully") {
-		t.Errorf("expected success, got %q", w.Body.String())
-	}
+	assertSettingsRedirect(t, w, "settings-saved")
 	// Only auto_security should have triggered a PUT, not schedule
 	if got := putCalls.Load(); got != 1 {
 		t.Errorf("expected 1 PUT call (auto_security only), got %d", got)
@@ -2120,9 +2125,7 @@ func TestUpdateSettings_ScheduleChangedSent(t *testing.T) {
 	if w.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", w.Code)
 	}
-	if !strings.Contains(w.Body.String(), "Settings updated successfully") {
-		t.Errorf("expected success, got %q", w.Body.String())
-	}
+	assertSettingsRedirect(t, w, "settings-saved")
 	if got := putCalls.Load(); got != 1 {
 		t.Errorf("expected 1 PUT call (schedule), got %d", got)
 	}
@@ -2168,9 +2171,7 @@ func TestUpdateSettings_ScheduleCleared(t *testing.T) {
 	if w.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", w.Code)
 	}
-	if !strings.Contains(w.Body.String(), "Settings updated successfully") {
-		t.Errorf("expected success, got %q", w.Body.String())
-	}
+	assertSettingsRedirect(t, w, "settings-saved")
 	mu.Lock()
 	defer mu.Unlock()
 	if len(received) != 1 {
@@ -2262,9 +2263,7 @@ func TestUpdateSettings_SelectUnchangedSkipped(t *testing.T) {
 	if w.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", w.Code)
 	}
-	if !strings.Contains(w.Body.String(), "Settings updated successfully") {
-		t.Errorf("expected success, got %q", w.Body.String())
-	}
+	assertSettingsRedirect(t, w, "settings-saved")
 	mu.Lock()
 	defer mu.Unlock()
 	if len(receivedKeys) != 1 || receivedKeys[0] != "schedule" {
@@ -2311,9 +2310,7 @@ func TestUpdateSettings_BackwardCompatNoOriginals(t *testing.T) {
 	if w.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", w.Code)
 	}
-	if !strings.Contains(w.Body.String(), "Settings updated successfully") {
-		t.Errorf("expected success, got %q", w.Body.String())
-	}
+	assertSettingsRedirect(t, w, "settings-saved")
 	mu.Lock()
 	defer mu.Unlock()
 	// Without _original fields, all 3 should be sent (schedule differs from empty original,
@@ -2341,6 +2338,9 @@ func TestUpdateSettings_NoValidFields(t *testing.T) {
 	if !strings.Contains(w.Body.String(), "No valid settings provided") {
 		t.Errorf("expected validation error, got %q", w.Body.String())
 	}
+	if !strings.Contains(w.Body.String(), `hx-swap-oob`) {
+		t.Error("validation error should include OOB toast")
+	}
 }
 
 func TestUpdateSettings_InvalidAutoSecurity(t *testing.T) {
@@ -2361,6 +2361,9 @@ func TestUpdateSettings_InvalidAutoSecurity(t *testing.T) {
 	if !strings.Contains(w.Body.String(), "No valid settings provided") {
 		t.Errorf("invalid auto_security value should be rejected, got %q", w.Body.String())
 	}
+	if !strings.Contains(w.Body.String(), `hx-swap-oob`) {
+		t.Error("invalid auto_security rejection should include OOB toast")
+	}
 }
 
 func TestUpdateSettings_InvalidSecuritySource(t *testing.T) {
@@ -2380,6 +2383,9 @@ func TestUpdateSettings_InvalidSecuritySource(t *testing.T) {
 	}
 	if !strings.Contains(w.Body.String(), "No valid settings provided") {
 		t.Errorf("invalid security_source should be rejected, got %q", w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), `hx-swap-oob`) {
+		t.Error("invalid security_source rejection should include OOB toast")
 	}
 }
 
@@ -2407,6 +2413,9 @@ func TestUpdateSettings_APIError(t *testing.T) {
 	}
 	if !strings.Contains(w.Body.String(), "Failed to save settings") {
 		t.Errorf("expected error message, got %q", w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), `hx-swap-oob`) {
+		t.Error("API error should include OOB toast")
 	}
 }
 
@@ -2470,13 +2479,8 @@ func TestUpdateSettings_WarningIncluded(t *testing.T) {
 	if w.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", w.Code)
 	}
-	respBody := w.Body.String()
-	if !strings.Contains(respBody, "Settings updated successfully") {
-		t.Errorf("expected success, got %q", respBody)
-	}
-	if !strings.Contains(respBody, "cron daemon not running") {
-		t.Errorf("expected warning, got %q", respBody)
-	}
+	// Success with warnings redirects with settings-partial flash.
+	assertSettingsRedirect(t, w, "settings-partial")
 }
 
 func TestUpdateSettings_WarningSanitized(t *testing.T) {
@@ -2508,13 +2512,9 @@ func TestUpdateSettings_WarningSanitized(t *testing.T) {
 	if w.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", w.Code)
 	}
-	respBody := w.Body.String()
-	if strings.Contains(respBody, "<img") {
-		t.Fatal("XSS payload in warning should be escaped")
-	}
-	if !strings.Contains(respBody, "&lt;img") {
-		t.Fatal("warning should contain escaped img tag")
-	}
+	// Success with warning redirects; sanitization is tested via the partial
+	// failure path in TestUpdateSettings_PartialFailure instead.
+	assertSettingsRedirect(t, w, "settings-partial")
 }
 
 func TestUpdatePage_ShowsEditForm(t *testing.T) {
@@ -2564,12 +2564,7 @@ func TestUpdateSettings_AutoSecurityFalse(t *testing.T) {
 	if w.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", w.Code)
 	}
-	if ct := w.Header().Get("Content-Type"); ct != "text/html; charset=utf-8" {
-		t.Errorf("expected text/html Content-Type, got %q", ct)
-	}
-	if !strings.Contains(w.Body.String(), "Settings updated successfully") {
-		t.Errorf("auto_security=false should be accepted, got %q", w.Body.String())
-	}
+	assertSettingsRedirect(t, w, "settings-saved")
 }
 
 func TestUpdateSettings_EmptyBody(t *testing.T) {
@@ -2589,6 +2584,9 @@ func TestUpdateSettings_EmptyBody(t *testing.T) {
 	}
 	if !strings.Contains(w.Body.String(), "No valid settings provided") {
 		t.Errorf("empty body should be rejected, got %q", w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), `hx-swap-oob`) {
+		t.Error("empty body rejection should include OOB toast")
 	}
 }
 
@@ -2634,7 +2632,8 @@ func TestUpdateSettings_PartialFailure(t *testing.T) {
 			return
 		}
 		json.NewEncoder(w).Encode(PluginSettingsUpdateResult{
-			Config: map[string]any{"key": "val"},
+			Config:  map[string]any{"key": "val"},
+			Warning: `<img src=x onerror=alert(1)>`,
 		})
 	})
 	api := httptest.NewServer(mux)
@@ -2659,8 +2658,17 @@ func TestUpdateSettings_PartialFailure(t *testing.T) {
 	if !strings.Contains(respBody, "failed to update") {
 		t.Errorf("should mention failed keys, got %q", respBody)
 	}
-	if got := w.Header().Get("HX-Refresh"); got != "" {
-		t.Errorf("partial failure must not set HX-Refresh, got %q", got)
+	if got := w.Header().Get("HX-Redirect"); got != "" {
+		t.Errorf("partial failure must not set HX-Redirect, got %q", got)
+	}
+	if !strings.Contains(respBody, `hx-swap-oob`) {
+		t.Error("partial failure should include OOB toast")
+	}
+	if strings.Contains(respBody, "<img") {
+		t.Fatal("XSS payload in warning should be escaped in partial failure")
+	}
+	if !strings.Contains(respBody, "&lt;img") {
+		t.Error("warning should contain escaped img tag in partial failure")
 	}
 }
 
@@ -2674,11 +2682,13 @@ func TestUpdateSettings_ValidationStatusCodes(t *testing.T) {
 		name       string
 		body       string
 		wantCode   int
-		wantString string
+		wantString string // checked in body; empty means check HX-Redirect instead
+		wantFlash  string // if non-empty, expect HX-Redirect with this flash
+		wantToast  bool   // if true, expect hx-swap-oob in body
 	}{
-		{"invalid auto_security", "auto_security=yes", http.StatusOK, "No valid settings"},
-		{"invalid security_source", "security_source=custom", http.StatusOK, "No valid settings"},
-		{"valid schedule", "schedule=0+3+*+*+*&schedule_original=old", http.StatusOK, "Settings updated"},
+		{"invalid auto_security", "auto_security=yes", http.StatusOK, "No valid settings", "", true},
+		{"invalid security_source", "security_source=custom", http.StatusOK, "No valid settings", "", true},
+		{"valid schedule", "schedule=0+3+*+*+*&schedule_original=old", http.StatusOK, "", "settings-saved", false},
 	}
 
 	for _, tt := range tests {
@@ -2692,8 +2702,13 @@ func TestUpdateSettings_ValidationStatusCodes(t *testing.T) {
 			if w.Code != tt.wantCode {
 				t.Errorf("expected %d, got %d", tt.wantCode, w.Code)
 			}
-			if !strings.Contains(w.Body.String(), tt.wantString) {
+			if tt.wantFlash != "" {
+				assertSettingsRedirect(t, w, tt.wantFlash)
+			} else if !strings.Contains(w.Body.String(), tt.wantString) {
 				t.Errorf("expected %q in response, got %q", tt.wantString, w.Body.String())
+			}
+			if tt.wantToast && !strings.Contains(w.Body.String(), `hx-swap-oob`) {
+				t.Error("expected OOB toast in response")
 			}
 		})
 	}
@@ -2882,6 +2897,9 @@ func TestUpdateSettings_InvalidCronRejected(t *testing.T) {
 	if !strings.Contains(w.Body.String(), "got 6") {
 		t.Errorf("response should mention field count: %s", w.Body.String())
 	}
+	if !strings.Contains(w.Body.String(), `hx-swap-oob`) {
+		t.Error("invalid cron rejection should include OOB toast")
+	}
 }
 
 func TestUpdateSettings_ShortcutScheduleAccepted(t *testing.T) {
@@ -2926,5 +2944,191 @@ func TestUpdateSettings_ShortcutScheduleAccepted(t *testing.T) {
 	}
 	if !apiCalled {
 		t.Error("API settings endpoint should have been called")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Toast notification tests
+// ---------------------------------------------------------------------------
+
+func TestToastOOB_Format(t *testing.T) {
+	got := toastOOB("success", "It worked!")
+	if !strings.Contains(got, `hx-swap-oob="afterbegin"`) {
+		t.Error("missing OOB swap attribute")
+	}
+	if !strings.Contains(got, `toast-success`) {
+		t.Error("missing toast level class")
+	}
+	if !strings.Contains(got, "It worked!") {
+		t.Error("missing toast message")
+	}
+	if !strings.Contains(got, `role="status"`) {
+		t.Error("missing ARIA role")
+	}
+}
+
+func TestToastOOB_EscapesHTML(t *testing.T) {
+	got := toastOOB("error", `<script>alert("xss")</script>`)
+	if strings.Contains(got, "<script>") {
+		t.Fatal("XSS payload should be escaped in toast")
+	}
+	if !strings.Contains(got, "&lt;script&gt;") {
+		t.Error("expected escaped script tag")
+	}
+}
+
+func TestToastOOB_SanitizesLevel(t *testing.T) {
+	got := toastOOB(`"><script>xss</script><div class="`, "msg")
+	if strings.Contains(got, "<script>") {
+		t.Fatal("invalid level should be sanitized, not injected")
+	}
+	// Invalid level falls back to "error"
+	if !strings.Contains(got, `toast-error`) {
+		t.Error("invalid level should fall back to error")
+	}
+}
+
+func TestToastOOB_ErrorUsesAlertRole(t *testing.T) {
+	got := toastOOB("error", "Something failed")
+	if !strings.Contains(got, `role="alert"`) {
+		t.Error("error toasts should use role=alert for accessibility")
+	}
+}
+
+func TestToastOOB_SuccessUsesStatusRole(t *testing.T) {
+	got := toastOOB("success", "Done")
+	if !strings.Contains(got, `role="status"`) {
+		t.Error("success toasts should use role=status")
+	}
+}
+
+func TestParseFlashToast_KnownValues(t *testing.T) {
+	tests := []struct {
+		flash   string
+		level   string
+		message string
+	}{
+		{"settings-saved", "success", "Settings saved successfully"},
+		{"settings-partial", "warning", "Settings saved with warnings"},
+		{"action-ok", "success", "Action completed successfully"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.flash, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodGet, "/?flash="+tt.flash, nil)
+			toast := parseFlashToast(req)
+			if toast == nil {
+				t.Fatal("expected toast, got nil")
+			}
+			if toast.Level != tt.level {
+				t.Errorf("level: got %q, want %q", toast.Level, tt.level)
+			}
+			if toast.Message != tt.message {
+				t.Errorf("message: got %q, want %q", toast.Message, tt.message)
+			}
+		})
+	}
+}
+
+func TestParseFlashToast_UnknownValue(t *testing.T) {
+	req := httptest.NewRequest(http.MethodGet, "/?flash=nope", nil)
+	if toast := parseFlashToast(req); toast != nil {
+		t.Errorf("unknown flash should return nil, got %+v", toast)
+	}
+}
+
+func TestParseFlashToast_Missing(t *testing.T) {
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	if toast := parseFlashToast(req); toast != nil {
+		t.Errorf("no flash param should return nil, got %+v", toast)
+	}
+}
+
+func TestUpdatePage_FlashRendersToast(t *testing.T) {
+	api := mockAPI(t)
+	defer api.Close()
+
+	h := newTestHandler(t, api.URL, "")
+	req := httptest.NewRequest(http.MethodGet, "/update?flash=settings-saved", nil)
+	w := httptest.NewRecorder()
+
+	h.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", w.Code)
+	}
+	body := w.Body.String()
+	if !strings.Contains(body, "toast-success") {
+		t.Error("page with flash=settings-saved should render a success toast")
+	}
+	if !strings.Contains(body, "Settings saved successfully") {
+		t.Error("page should contain flash toast message")
+	}
+}
+
+func TestGenericAction_SuccessIncludesToast(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/v1/plugins", func(w http.ResponseWriter, _ *http.Request) {
+		json.NewEncoder(w).Encode([]PluginInfo{{
+			Name: "test", Description: "Test", RoutePrefix: "/api/v1/plugins/test",
+			Endpoints: []PluginEndpoint{
+				{Method: "POST", Path: "/run", Description: "Run test"},
+			},
+		}})
+	})
+	mux.HandleFunc("/api/v1/plugins/test/run", func(w http.ResponseWriter, _ *http.Request) {
+		json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+	})
+	api := httptest.NewServer(mux)
+	defer api.Close()
+
+	h := newTestHandler(t, api.URL, "")
+	req := httptest.NewRequest(http.MethodPost, "/test/actions/run", nil)
+	w := httptest.NewRecorder()
+
+	h.ServeHTTP(w, req)
+
+	body := w.Body.String()
+	if !strings.Contains(body, `hx-swap-oob`) {
+		t.Error("success action should include OOB toast")
+	}
+	if !strings.Contains(body, `toast-success`) {
+		t.Error("success action should include success toast class")
+	}
+}
+
+func TestGenericAction_ErrorIncludesToast(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/v1/plugins", func(w http.ResponseWriter, _ *http.Request) {
+		json.NewEncoder(w).Encode([]PluginInfo{{
+			Name: "test", Description: "Test", RoutePrefix: "/api/v1/plugins/test",
+			Endpoints: []PluginEndpoint{
+				{Method: "POST", Path: "/fail", Description: "Fail test"},
+			},
+		}})
+	})
+	mux.HandleFunc("/api/v1/plugins/test/fail", func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]any{
+			"error": map[string]any{"code": "boom", "message": "something broke"},
+		})
+	})
+	api := httptest.NewServer(mux)
+	defer api.Close()
+
+	h := newTestHandler(t, api.URL, "")
+	req := httptest.NewRequest(http.MethodPost, "/test/actions/fail", nil)
+	w := httptest.NewRecorder()
+
+	h.ServeHTTP(w, req)
+
+	body := w.Body.String()
+	if !strings.Contains(body, `hx-swap-oob`) {
+		t.Error("error action should include OOB toast")
+	}
+	if !strings.Contains(body, `toast-error`) {
+		t.Error("error action should include error toast class")
+	}
+	if !strings.Contains(body, `error-details`) {
+		t.Error("error action should include expandable error details")
 	}
 }

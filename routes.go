@@ -20,6 +20,44 @@ import (
 	"github.com/go-chi/chi/v5"
 )
 
+// ---------- Toast notifications ----------
+
+// Toast represents a brief notification shown at the top of the viewport.
+type Toast struct {
+	Level   string // "success", "error", "warning"
+	Message string
+}
+
+// toastOOB returns an htmx out-of-band swap fragment that injects a toast
+// into #toast-container. The toast auto-dismisses via CSS animation.
+func toastOOB(level, message string) string {
+	switch level {
+	case "success", "error", "warning":
+	default:
+		level = "error"
+	}
+	role := "status"
+	if level == "error" {
+		role = "alert"
+	}
+	safeMsg := html.EscapeString(message)
+	return `<div id="toast-container" hx-swap-oob="afterbegin">` +
+		`<output class="toast toast-` + level + `" role="` + role + `">` + safeMsg + `</output>` +
+		`</div>`
+}
+
+// flashToast maps flash query-parameter values to toast content.
+var flashToast = map[string]*Toast{
+	"settings-saved":   {Level: "success", Message: "Settings saved successfully"},
+	"settings-partial": {Level: "warning", Message: "Settings saved with warnings"},
+	"action-ok":        {Level: "success", Message: "Action completed successfully"},
+}
+
+// parseFlashToast returns a Toast if the request contains a recognised flash param.
+func parseFlashToast(r *http.Request) *Toast {
+	return flashToast[r.URL.Query().Get("flash")]
+}
+
 // ---------- Generic plugin handlers ----------
 
 // maxConcurrentAPICalls limits goroutines spawned per request when fetching
@@ -222,6 +260,9 @@ func (h *Handler) handleGenericPlugin(w http.ResponseWriter, r *http.Request) {
 		"Actions":      actions,
 		"PluginName":   name,
 	}
+	if t := parseFlashToast(r); t != nil {
+		data["Toast"] = t
+	}
 	h.render(w, "plugin.html", data)
 }
 
@@ -261,16 +302,17 @@ func (h *Handler) handleGenericAction(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		slog.Error("web: generic plugin action failed",
 			"plugin", name, "action", action, "error", err)
-		// Return 200 so htmx swaps the error fragment into the target.
-		// Non-200 responses are not swapped by default htmx config.
 		safeErr := html.EscapeString(err.Error())
 		//nolint:errcheck // HTTP response write
-		_, _ = w.Write([]byte(`<div class="alert alert-error">Action failed: ` + safeErr + `</div>`))
+		_, _ = w.Write([]byte(`<div class="alert alert-error"><strong>Action failed</strong>` +
+			`<details class="error-details"><summary>Show details</summary>` +
+			`<pre>` + safeErr + `</pre></details></div>` + toastOOB("error", "Action failed")))
 		return
 	}
 
 	//nolint:errcheck // HTTP response write
-	_, _ = w.Write([]byte(`<div class="alert alert-success">Action completed successfully</div>`))
+	_, _ = w.Write([]byte(`<div class="alert alert-success">Action completed successfully</div>` +
+		toastOOB("success", "Action completed")))
 }
 
 // ---------- Dashboard ----------
@@ -288,6 +330,9 @@ func (h *Handler) handleDashboard(w http.ResponseWriter, r *http.Request) {
 		"Page":    "dashboard",
 		"Node":    node,
 		"NodeErr": nodeErr,
+	}
+	if t := parseFlashToast(r); t != nil {
+		data["Toast"] = t
 	}
 	// Reuse dashboard NodeInfo for sidebar to avoid a second /api/v1/node call.
 	if nodeErr == nil {
@@ -367,6 +412,9 @@ func (h *Handler) handleUpdate(w http.ResponseWriter, r *http.Request) {
 		"Config":        config,
 		"ConfigErr":     configErr,
 	}
+	if t := parseFlashToast(r); t != nil {
+		data["Toast"] = t
+	}
 	h.render(w, "update.html", h.withPlugins(r, data))
 }
 
@@ -390,7 +438,8 @@ func (h *Handler) handleUpdateRun(w http.ResponseWriter, r *http.Request) {
 		slog.Error("web: failed to marshal trigger request", "error", err)
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		//nolint:errcheck // HTTP response write — no recovery possible
-		_, _ = w.Write([]byte(`<div class="alert alert-error">Internal error</div>`))
+		_, _ = w.Write([]byte(`<div class="alert alert-error">Internal error</div>` +
+			toastOOB("error", "Internal error")))
 		return
 	}
 	body := bytes.NewReader(payload)
@@ -399,11 +448,13 @@ func (h *Handler) handleUpdateRun(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		slog.Error("web: failed to trigger update", "type", updateType, "error", err)
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		// html.EscapeString on error message for defense in depth.
 		safeErr := html.EscapeString(err.Error())
 		//nolint:errcheck // HTTP response write — no recovery possible
-		_, _ = w.Write([]byte(`<div class="alert alert-error">Failed to start ` +
-			updateType + ` update: ` + safeErr + `</div>`))
+		_, _ = w.Write([]byte(`<div class="alert alert-error"><strong>Failed to start ` +
+			updateType + ` update</strong>` +
+			`<details class="error-details"><summary>Show details</summary>` +
+			`<pre>` + safeErr + `</pre></details></div>` +
+			toastOOB("error", "Failed to start update")))
 		return
 	}
 
@@ -589,7 +640,9 @@ func (h *Handler) handleUpdateSettings(w http.ResponseWriter, r *http.Request) {
 		if err := validateWebCronExpr(schedule); err != nil {
 			w.Header().Set("Content-Type", "text/html; charset=utf-8")
 			safeErr := html.EscapeString(err.Error())
-			_, _ = w.Write([]byte(`<div class="alert alert-error">` + safeErr + `</div>`)) //nolint:errcheck // HTTP write
+			//nolint:errcheck // HTTP write
+			_, _ = w.Write([]byte(`<div class="alert alert-error">` + safeErr + `</div>` +
+				toastOOB("error", "Invalid schedule")))
 			return
 		}
 		changes = append(changes, settingChange{key: "schedule", value: schedule})
@@ -608,7 +661,9 @@ func (h *Handler) handleUpdateSettings(w http.ResponseWriter, r *http.Request) {
 
 	if len(changes) == 0 {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		_, _ = w.Write([]byte(`<div class="alert alert-error">No valid settings provided</div>`)) //nolint:errcheck // HTTP write
+		//nolint:errcheck // HTTP write
+		_, _ = w.Write([]byte(`<div class="alert alert-error">No valid settings provided</div>` +
+			toastOOB("error", "No changes detected")))
 		return
 	}
 
@@ -633,28 +688,35 @@ func (h *Handler) handleUpdateSettings(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 
 	if len(failedKeys) > 0 && len(updatedKeys) == 0 {
-		// Return 200 so htmx swaps the error fragment into the target.
-		// Non-200 responses are not swapped by default htmx config.
-		_, _ = w.Write([]byte(`<div class="alert alert-error">Failed to save settings</div>`)) //nolint:errcheck // HTTP write
+		//nolint:errcheck // HTTP write
+		_, _ = w.Write([]byte(`<div class="alert alert-error">Failed to save settings</div>` +
+			toastOOB("error", "Failed to save settings")))
 		return
 	}
 
-	var b strings.Builder
-	if len(failedKeys) > 0 {
-		b.WriteString(`<div class="alert alert-error">`) //nolint:errcheck // strings.Builder
-		_, _ = fmt.Fprintf(&b, "Updated %s but failed to update %s",
-			strings.Join(updatedKeys, ", "), strings.Join(failedKeys, ", ")) //nolint:errcheck // strings.Builder
-		b.WriteString(`</div>`) //nolint:errcheck // strings.Builder
-	} else {
-		w.Header().Set("HX-Refresh", "true")
-		b.WriteString(`<div class="alert alert-success">Settings updated successfully</div>`) //nolint:errcheck // strings.Builder
+	// Full success — redirect so the page re-renders with updated config values.
+	if len(failedKeys) == 0 {
+		flash := "settings-saved"
+		if len(warnings) > 0 {
+			flash = "settings-partial"
+		}
+		w.Header().Set("HX-Redirect", "/update?flash="+flash)
+		return
 	}
+
+	// Partial failure — show inline details + toast.
+	var b strings.Builder
+	b.WriteString(`<div class="alert alert-error">`) //nolint:errcheck // strings.Builder
+	_, _ = fmt.Fprintf(&b, "Updated %s but failed to update %s",
+		strings.Join(updatedKeys, ", "), strings.Join(failedKeys, ", ")) //nolint:errcheck // strings.Builder
+	b.WriteString(`</div>`) //nolint:errcheck // strings.Builder
 	for _, warn := range warnings {
 		b.WriteString(`<div class="alert alert-warning">`) //nolint:errcheck // strings.Builder
 		_, _ = fmt.Fprintf(&b, "Warning: %s", warn)        //nolint:errcheck // strings.Builder
 		b.WriteString(`</div>`)                            //nolint:errcheck // strings.Builder
 	}
-	_, _ = w.Write([]byte(b.String())) //nolint:errcheck // HTTP write
+	b.WriteString(toastOOB("warning", "Some settings could not be saved")) //nolint:errcheck // strings.Builder
+	_, _ = w.Write([]byte(b.String()))                                     //nolint:errcheck // HTTP write
 }
 
 // ---------- Network plugin ----------
@@ -705,6 +767,9 @@ func (h *Handler) handleNetwork(w http.ResponseWriter, r *http.Request) {
 		"StatusErr": statusErr,
 		"DNS":       dns,
 		"DNSErr":    dnsErr,
+	}
+	if t := parseFlashToast(r); t != nil {
+		data["Toast"] = t
 	}
 	h.render(w, "network.html", h.withPlugins(r, data))
 }

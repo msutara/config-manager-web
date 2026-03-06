@@ -41,6 +41,14 @@
     <main class="content">
         {{ template "content" . }}
     </main>
+    <div id="toast-container" aria-live="polite">
+        {{ if .Toast }}<output class="toast toast-{{ .Toast.Level }}" role="{{ if eq .Toast.Level "error" }}alert{{ else }}status{{ end }}">{{ .Toast.Message }}</output>{{ end }}
+    </div>
+    <script>
+    document.addEventListener("animationend",function(e){if(e.animationName==="toast-out")e.target.remove()});
+    document.querySelectorAll(".toast").forEach(function(t){setTimeout(function(){t.remove()},6000)});
+    (function(){var u=new URL(location);if(u.searchParams.has("flash")){u.searchParams.delete("flash");history.replaceState(null,"",u)}})();
+    </script>
 </body>
 </html>
 {{ end }}
