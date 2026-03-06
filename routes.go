@@ -11,6 +11,7 @@ import (
 	"net/url"
 	"path"
 	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 	"unicode"
@@ -260,7 +261,8 @@ func (h *Handler) handleGenericAction(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		slog.Error("web: generic plugin action failed",
 			"plugin", name, "action", action, "error", err)
-		w.WriteHeader(http.StatusInternalServerError)
+		// Return 200 so htmx swaps the error fragment into the target.
+		// Non-200 responses are not swapped by default htmx config.
 		safeErr := html.EscapeString(err.Error())
 		//nolint:errcheck // HTTP response write
 		_, _ = w.Write([]byte(`<div class="alert alert-error">Action failed: ` + safeErr + `</div>`))
@@ -420,6 +422,10 @@ func (h *Handler) handleUpdateRun(w http.ResponseWriter, r *http.Request) {
 // validJobID matches job IDs in the {plugin}.{job} dot-notation.
 var validJobID = regexp.MustCompile(`^[a-z][a-z0-9-]*\.[a-z][a-z0-9-]*$`)
 
+// maxErrorRetries caps the number of consecutive poll errors before giving up.
+// At 5 s between retries this allows ~2.5 minutes of transient failures.
+const maxErrorRetries = 30
+
 // handleProgress polls the core job API and returns an HTMX fragment showing
 // the current run state. While the job is running the fragment includes
 // hx-trigger="every 2s" so HTMX re-polls automatically. When the job
@@ -467,8 +473,19 @@ func (h *Handler) handleProgress(w http.ResponseWriter, r *http.Request) {
 
 	var run JobRun
 	err := h.client.get(r.Context(), "/api/v1/jobs/"+jobID+"/runs/latest", &run)
+
+	// Track consecutive error retries via query parameter so the template
+	// can stop polling after maxErrorRetries (prevents infinite retries
+	// when core is down).
+	retryCount := 0
+	if v := r.URL.Query().Get("retry"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			retryCount = n
+		}
+	}
+
 	if err != nil {
-		slog.Warn("web: failed to poll job progress", "job", jobID, "error", err)
+		slog.Warn("web: failed to poll job progress", "job", jobID, "retry", retryCount, "error", err)
 		// Distinguish retryable (5xx/network) from non-retryable (4xx) errors.
 		// Non-retryable errors use "failed" status which stops polling.
 		status := "error"
@@ -476,7 +493,18 @@ func (h *Handler) handleProgress(w http.ResponseWriter, r *http.Request) {
 		if errors.As(err, &apiErr) && !apiErr.Retryable() {
 			status = "failed"
 		}
-		run = JobRun{JobID: jobID, Status: status, Error: err.Error()}
+		// Cap retries to avoid infinite polling when core is unreachable.
+		if status == "error" && retryCount >= maxErrorRetries {
+			status = "failed"
+			run = JobRun{JobID: jobID, Status: status, Error: "job status unknown after too many retries — please refresh the page"}
+		} else {
+			if status == "error" {
+				retryCount++
+			}
+			run = JobRun{JobID: jobID, Status: status, Error: err.Error()}
+		}
+	} else {
+		retryCount = 0 // reset on successful poll
 	}
 
 	// Use the validated request jobID as authoritative value for rendering,
@@ -487,12 +515,13 @@ func (h *Handler) handleProgress(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	data := map[string]string{
-		"JobID":     jobID,
-		"Status":    run.Status,
-		"StartedAt": run.StartedAt,
-		"Duration":  run.Duration,
-		"Error":     run.Error,
-		"ReturnURL": returnURL,
+		"JobID":      jobID,
+		"Status":     run.Status,
+		"StartedAt":  run.StartedAt,
+		"Duration":   run.Duration,
+		"Error":      run.Error,
+		"ReturnURL":  returnURL,
+		"RetryCount": strconv.Itoa(retryCount),
 	}
 	if err := h.templates["progress.html"].Execute(w, data); err != nil {
 		slog.Error("web: failed to render progress", "error", err)
@@ -594,7 +623,8 @@ func (h *Handler) handleUpdateSettings(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 
 	if len(failedKeys) > 0 && len(updatedKeys) == 0 {
-		w.WriteHeader(http.StatusInternalServerError)
+		// Return 200 so htmx swaps the error fragment into the target.
+		// Non-200 responses are not swapped by default htmx config.
 		_, _ = w.Write([]byte(`<div class="alert alert-error">Failed to save settings</div>`)) //nolint:errcheck // HTTP write
 		return
 	}

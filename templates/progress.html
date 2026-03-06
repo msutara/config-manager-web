@@ -18,7 +18,7 @@
 </div>
 {{ else if eq .Status "error" }}
 <div class="alert alert-error"
-     hx-get="/progress?job={{ urlquery .JobID }}&amp;return={{ urlquery .ReturnURL }}"
+     hx-get="/progress?job={{ urlquery .JobID }}&amp;return={{ urlquery .ReturnURL }}&amp;retry={{ .RetryCount }}"
      hx-trigger="every 5s" hx-swap="outerHTML">
     Failed to check job status{{ if .Error }}: {{ .Error }}{{ end }} (retrying…)
 </div>
