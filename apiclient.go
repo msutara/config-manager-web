@@ -111,7 +111,7 @@ func (c *apiClient) get(ctx context.Context, path string, dst any) error {
 	if resp.StatusCode != http.StatusOK {
 		respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 1024)) //nolint:errcheck // best-effort error detail
 		if loc := resp.Header.Get("Location"); loc != "" && resp.StatusCode >= 300 && resp.StatusCode < 400 {
-			return fmt.Errorf("api %s returned %d redirect to %s: %s", path, resp.StatusCode, loc, respBody)
+			return &APIError{StatusCode: resp.StatusCode, Message: fmt.Sprintf("api %s returned %d redirect to %s: %s", path, resp.StatusCode, loc, respBody)}
 		}
 		return friendlyAPIError("GET", path, resp.StatusCode, respBody)
 	}
@@ -149,7 +149,7 @@ func (c *apiClient) post(ctx context.Context, path string, body io.Reader, dst a
 		resp.StatusCode != http.StatusNoContent {
 		respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 1024)) //nolint:errcheck // best-effort error detail
 		if loc := resp.Header.Get("Location"); loc != "" && resp.StatusCode >= 300 && resp.StatusCode < 400 {
-			return fmt.Errorf("api %s returned %d redirect to %s: %s", path, resp.StatusCode, loc, respBody)
+			return &APIError{StatusCode: resp.StatusCode, Message: fmt.Sprintf("api %s returned %d redirect to %s: %s", path, resp.StatusCode, loc, respBody)}
 		}
 		return friendlyAPIError("POST", path, resp.StatusCode, respBody)
 	}
@@ -186,7 +186,7 @@ func (c *apiClient) put(ctx context.Context, path string, body io.Reader, dst an
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusNoContent {
 		respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 1024)) //nolint:errcheck // best-effort error detail
 		if loc := resp.Header.Get("Location"); loc != "" && resp.StatusCode >= 300 && resp.StatusCode < 400 {
-			return fmt.Errorf("api %s returned %d redirect to %s: %s", path, resp.StatusCode, loc, respBody)
+			return &APIError{StatusCode: resp.StatusCode, Message: fmt.Sprintf("api %s returned %d redirect to %s: %s", path, resp.StatusCode, loc, respBody)}
 		}
 		return friendlyAPIError("PUT", path, resp.StatusCode, respBody)
 	}
