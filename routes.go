@@ -479,9 +479,8 @@ func (h *Handler) handleProgress(w http.ResponseWriter, r *http.Request) {
 	// when core is down).
 	retryCount := 0
 	if v := r.URL.Query().Get("retry"); v != "" {
-		retryCount, _ = strconv.Atoi(v)
-		if retryCount < 0 {
-			retryCount = 0
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			retryCount = n
 		}
 	}
 
