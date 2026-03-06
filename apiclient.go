@@ -249,6 +249,16 @@ type NodeInfo struct {
 	UptimeSeconds int    `json:"uptime_seconds"`
 }
 
+// JobRun holds the response from GET /api/v1/jobs/{id}/runs/latest.
+type JobRun struct {
+	JobID     string `json:"job_id"`
+	Status    string `json:"status"` // "running", "completed", "failed"
+	StartedAt string `json:"started_at,omitempty"`
+	EndedAt   string `json:"ended_at,omitempty"`
+	Duration  string `json:"duration,omitempty"`
+	Error     string `json:"error,omitempty"`
+}
+
 // ---------- Update plugin types ----------
 
 // PendingUpdate holds one entry from GET /api/v1/plugins/update/status.

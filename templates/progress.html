@@ -1,0 +1,21 @@
+{{ if eq .Status "running" }}
+<div class="progress-box"
+     hx-get="/progress?job={{ .JobID }}&amp;return={{ urlquery .ReturnURL }}"
+     hx-trigger="every 2s"
+     hx-swap="outerHTML">
+    <span class="spinner spinner-active"></span>
+    <span class="progress-text">
+        {{ .JobID }} is running{{ if .StartedAt }} (started {{ .StartedAt }}){{ end }}…
+    </span>
+</div>
+{{ else if eq .Status "completed" }}
+<div class="alert alert-success" hx-get="{{ .ReturnURL }}" hx-trigger="load delay:1s" hx-target="body" hx-push-url="true" hx-select="body">
+    {{ .JobID }} completed{{ if .Duration }} in {{ .Duration }}{{ end }}.
+</div>
+{{ else if eq .Status "failed" }}
+<div class="alert alert-error">
+    {{ .JobID }} failed{{ if .Duration }} after {{ .Duration }}{{ end }}{{ if .Error }}: {{ .Error }}{{ end }}.
+</div>
+{{ else }}
+<div class="alert alert-error">No run data available for {{ .JobID }}.</div>
+{{ end }}

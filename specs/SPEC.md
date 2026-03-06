@@ -34,8 +34,9 @@ No external file dependencies at runtime.
 | `/auth/login` | POST | No | Validate token, set session cookie |
 | `/auth/logout` | POST | Yes | Clear session cookie |
 | `/update` | GET | Yes | Update manager page |
-| `/update/run` | POST | Yes | Trigger update (htmx fragment) |
+| `/update/run` | POST | Yes | Trigger update (returns progress fragment) |
 | `/update/settings` | POST | Yes | Save update plugin settings (htmx fragment) |
+| `/progress` | GET | Yes | Job progress polling (plugin-agnostic htmx fragment) |
 | `/network` | GET | Yes | Network information page |
 | `/static/*` | GET | No | Embedded static assets |
 
@@ -141,6 +142,23 @@ Data sources:
 - Update trigger: `hx-post="/update/run" hx-target="#update-result"`
 - Loading indicator: `hx-indicator="#update-spinner"`
 - Confirmation dialogs: `hx-confirm="..."` on destructive action buttons
+
+### Job Progress Polling
+
+After triggering a long-running job (e.g. update run), the POST handler
+returns a progress fragment instead of a full-page refresh.  The fragment
+uses `hx-trigger="every 2s"` to poll `GET /progress?job={id}` until the
+job completes or fails.
+
+- **Running** — shows spinner + start timestamp, continues polling
+- **Completed** — shows success alert, auto-navigates to the return URL
+  after 1 second via `hx-get` + `hx-trigger="load delay:1s"`
+- **Failed** — shows error alert with message, polling stops
+
+The `/progress` endpoint is plugin-agnostic: any job ID registered with
+the core scheduler works (e.g. `update.full`, `network.scan`).  The
+return URL defaults to `/{plugin}` (derived from the job ID prefix) but
+can be overridden with a `return` query parameter.
 
 ### Response Fragments
 

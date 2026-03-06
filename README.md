@@ -9,6 +9,8 @@ headless Debian-based nodes (Raspbian Bookworm ARM, Debian Bullseye slim).
 - Dashboard with hostname, OS, architecture, and live uptime
 - Update manager — pending counts, package list, log viewer, run full or
   security-only updates with confirmation dialogs
+- **Job progress polling** — after triggering long-running jobs, shows
+  real-time status with auto-polling until completion or failure
 - Network info — interfaces, connectivity status, DNS configuration
 - Cookie-based authentication using the same Bearer token as the API
 - Responsive dark theme — works on phones, tablets, and desktops

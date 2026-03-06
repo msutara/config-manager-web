@@ -36,6 +36,13 @@ View pending updates, trigger operations, and edit settings:
 - **Run Security Update** — triggers security-only update with confirmation
   (hidden on systems without a separate security repository)
 
+After triggering an update, a **progress indicator** appears showing real-time
+job status.  The page polls `/progress` every 2 seconds, which checks the
+core API until the job completes or fails.  On completion, the update page
+reloads automatically to show updated Last Run status.  This progress
+mechanism is generic — any plugin that registers scheduled jobs with the core
+will benefit from it.
+
 ##### Edit Settings
 
 Below the actions, the **Edit Settings** form allows changing:
@@ -103,3 +110,5 @@ and tablets.
 | --- | --- | --- |
 | "response body exceeds … byte limit" | API response larger than 2 MB | Reduce payload at the source or raise `maxResponseBytes` in `apiclient.go` |
 | Empty log section after a large upgrade | Log response exceeded 2 MB wire limit | Logs are still available via the core API directly (`curl /api/v1/plugins/update/logs`) |
+| "Failed to check job status" in progress | Core API unreachable while polling job | Verify the core service is running; the job may still complete in the background |
+| Progress spinner never stops | Core job stuck in "running" state | Check core logs; the job goroutine may have panicked without updating status |

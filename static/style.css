@@ -371,6 +371,35 @@ h3 {
     to { transform: rotate(360deg); }
 }
 
+/* Progress polling */
+
+.progress-box {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.75rem 1rem;
+    background: var(--card-bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    margin-bottom: 1rem;
+}
+
+.spinner-active {
+    display: inline-block;
+    width: 1.25rem;
+    height: 1.25rem;
+    border: 2px solid var(--border);
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    animation: spin 0.6s linear infinite;
+    flex-shrink: 0;
+}
+
+.progress-text {
+    color: var(--text-muted);
+    font-size: 0.9rem;
+}
+
 /* Login Page */
 
 .login-body {
