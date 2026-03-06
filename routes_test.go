@@ -1,6 +1,7 @@
 package web
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"io"
@@ -537,6 +538,60 @@ func TestAPIClient_GetInvalidJSON(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "decode") {
 		t.Fatalf("error should mention decode: %v", err)
+	}
+}
+
+func TestAPIClient_OversizedResponseRejected(t *testing.T) {
+	// Serve a JSON response larger than maxResponseBytes for every path.
+	// Payload is derived from the constant so the test stays valid if the limit changes.
+	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`{"hostname":"`))
+		payloadSize := int(maxResponseBytes) + 1024
+		chunk := bytes.Repeat([]byte("x"), 64*1024)
+		for written := 0; written < payloadSize; written += len(chunk) {
+			remaining := payloadSize - written
+			if remaining < len(chunk) {
+				w.Write(chunk[:remaining])
+				break
+			}
+			w.Write(chunk)
+		}
+		w.Write([]byte(`"}`))
+	}))
+	defer api.Close()
+
+	c := newAPIClient(api.URL, "")
+
+	cases := []struct {
+		name string
+		fn   func() error
+	}{
+		{"get", func() error {
+			var n NodeInfo
+			return c.get(context.Background(), "/huge", &n)
+		}},
+		{"post", func() error {
+			var n NodeInfo
+			return c.post(context.Background(), "/huge", nil, &n)
+		}},
+		{"put", func() error {
+			var n NodeInfo
+			return c.put(context.Background(), "/huge", nil, &n)
+		}},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			err := tc.fn()
+			if err == nil {
+				t.Fatal("expected error for oversized response")
+			}
+			if !strings.Contains(err.Error(), "exceeds") {
+				t.Fatalf("error should mention size limit exceeded: %v", err)
+			}
+		})
 	}
 }
 

@@ -96,3 +96,10 @@ and tablets.
 - SameSite=Strict prevents cross-site request forgery
 - For production use, configure a strong random token
 - The web UI is intended for LAN access only
+
+## Troubleshooting
+
+| Symptom | Cause | Fix |
+| --- | --- | --- |
+| "response body exceeds … byte limit" | API response larger than 2 MB | Reduce payload at the source or raise `maxResponseBytes` in `apiclient.go` |
+| Empty log section after a large upgrade | Log response exceeded 2 MB wire limit | Logs are still available via the core API directly (`curl /api/v1/plugins/update/logs`) |
