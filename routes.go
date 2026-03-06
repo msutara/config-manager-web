@@ -464,7 +464,7 @@ func (h *Handler) handleProgress(w http.ResponseWriter, r *http.Request) {
 	var run JobRun
 	err := h.client.get(r.Context(), "/api/v1/jobs/"+jobID+"/runs/latest", &run)
 	if err != nil {
-		slog.Error("web: failed to poll job progress", "job", jobID, "error", err)
+		slog.Warn("web: failed to poll job progress", "job", jobID, "error", err)
 		run = JobRun{JobID: jobID, Status: "error", Error: err.Error()}
 	}
 

@@ -148,12 +148,16 @@ Data sources:
 After triggering a long-running job (e.g. update run), the POST handler
 returns a progress fragment instead of a full-page refresh.  The fragment
 uses `hx-trigger="every 2s"` to poll `GET /progress?job={id}` until the
-job completes or fails.
+job completes or fails under normal conditions.
 
-- **Running** — shows spinner + start timestamp, continues polling
+- **Running** — shows spinner + start timestamp, continues polling every 2 seconds
 - **Completed** — shows success alert, auto-navigates to the return URL
   after 1 second via `hx-get` + `hx-trigger="load delay:1s"`
-- **Failed** — shows error alert with message, polling stops
+- **Failed** — shows error alert with message, polling stops (terminal job state)
+- **API error (transient)** — when the poll request itself fails (e.g. core
+  temporarily unreachable), shows "Failed to check job status … (retrying…)"
+  and backs off polling to `hx-trigger="every 5s"` until a successful
+  response or terminal job state is reached
 
 The `/progress` endpoint is plugin-agnostic: any job ID registered with
 the core scheduler works (e.g. `update.full`, `network.scan`).  The

@@ -37,11 +37,13 @@ View pending updates, trigger operations, and edit settings:
   (hidden on systems without a separate security repository)
 
 After triggering an update, a **progress indicator** appears showing real-time
-job status.  The page polls `/progress` every 2 seconds, which checks the
-core API until the job completes or fails.  On completion, the update page
-reloads automatically to show updated Last Run status.  This progress
-mechanism is generic — any plugin that registers scheduled jobs with the core
-will benefit from it.
+job status.  Under normal conditions, the page polls `/progress` every 2 seconds
+to check the core API until the job completes or fails.  If a poll returns an
+error, the UI automatically backs off and polls less frequently (about every
+5 seconds) until a successful response or terminal job state is reached.  On
+completion, the update page reloads automatically to show updated Last Run
+status.  This progress mechanism is generic — any plugin that registers
+scheduled jobs with the core will benefit from it.
 
 ##### Edit Settings
 
