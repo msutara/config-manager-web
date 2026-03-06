@@ -424,7 +424,12 @@ var validJobID = regexp.MustCompile(`^[a-z][a-z0-9-]*\.[a-z][a-z0-9-]*$`)
 func (h *Handler) handleProgress(w http.ResponseWriter, r *http.Request) {
 	jobID := r.URL.Query().Get("job")
 	if !validJobID.MatchString(jobID) {
-		http.Error(w, "invalid job id", http.StatusBadRequest)
+		slog.Warn("web: invalid job id in progress poll", "job", jobID, "remote_addr", r.RemoteAddr)
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		safeJobID := html.EscapeString(jobID)
+		//nolint:errcheck // HTTP response write — no recovery possible
+		_, _ = w.Write([]byte(
+			`<div class="alert alert-error">Invalid job ID: ` + safeJobID + `</div>`))
 		return
 	}
 
@@ -443,23 +448,24 @@ func (h *Handler) handleProgress(w http.ResponseWriter, r *http.Request) {
 	if !strings.HasPrefix(returnURL, "/") || strings.HasPrefix(returnURL, "//") || strings.Contains(returnURL, `\`) {
 		returnURL = "/"
 	}
+	// Reject non-UTF-8 and control characters to avoid surprising
+	// behaviour when reflected into hx-get attributes.
+	if !utf8.ValidString(returnURL) {
+		returnURL = "/"
+	} else {
+		for _, r := range returnURL {
+			if unicode.IsControl(r) {
+				returnURL = "/"
+				break
+			}
+		}
+	}
 
 	var run JobRun
 	err := h.client.get(r.Context(), "/api/v1/jobs/"+jobID+"/runs/latest", &run)
 	if err != nil {
 		slog.Error("web: failed to poll job progress", "job", jobID, "error", err)
-		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		safeErr := html.EscapeString(err.Error())
-		safeJobID := html.EscapeString(jobID)
-		safeReturn := html.EscapeString(url.QueryEscape(returnURL))
-		//nolint:errcheck // HTTP response write — no recovery possible
-		_, _ = w.Write([]byte(
-			`<div class="alert alert-error"` +
-				` hx-get="/progress?job=` + safeJobID + `&amp;return=` + safeReturn + `"` +
-				` hx-trigger="every 5s" hx-swap="outerHTML">` +
-				`Failed to check job status: ` + safeErr +
-				` (retrying…)</div>`))
-		return
+		run = JobRun{JobID: jobID, Status: "error", Error: err.Error()}
 	}
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")

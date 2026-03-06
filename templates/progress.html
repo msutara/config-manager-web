@@ -16,6 +16,12 @@
 <div class="alert alert-error">
     {{ .JobID }} failed{{ if .Duration }} after {{ .Duration }}{{ end }}{{ if .Error }}: {{ .Error }}{{ end }}.
 </div>
+{{ else if eq .Status "error" }}
+<div class="alert alert-error"
+     hx-get="/progress?job={{ .JobID }}&amp;return={{ urlquery .ReturnURL }}"
+     hx-trigger="every 5s" hx-swap="outerHTML">
+    Failed to check job status{{ if .Error }}: {{ .Error }}{{ end }} (retrying…)
+</div>
 {{ else }}
 <div class="alert alert-error">No run data available for {{ .JobID }}.</div>
 {{ end }}

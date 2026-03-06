@@ -1497,8 +1497,16 @@ func TestProgress_InvalidJobID(t *testing.T) {
 		w := httptest.NewRecorder()
 		h.ServeHTTP(w, req)
 
-		if w.Code != http.StatusBadRequest {
-			t.Errorf("job=%q: expected 400, got %d", jobID, w.Code)
+		if w.Code != http.StatusOK {
+			t.Errorf("job=%q: expected 200, got %d", jobID, w.Code)
+		}
+		body := w.Body.String()
+		if !strings.Contains(body, "alert-error") {
+			t.Errorf("job=%q: expected error fragment, got %s", jobID, body)
+		}
+		// Error fragment must NOT contain hx-trigger (no retry for invalid IDs).
+		if strings.Contains(body, "hx-trigger") {
+			t.Errorf("job=%q: invalid job error should not retry", jobID)
 		}
 	}
 }
@@ -1608,6 +1616,8 @@ func TestProgress_ReturnURL_OpenRedirect(t *testing.T) {
 		`/\evil.com`,
 		"javascript:alert(1)",
 		"data:text/html,<h1>pwned</h1>",
+		"/update\r\nX-Injected: true",
+		"/update\x00evil",
 	}
 	for _, u := range dangerous {
 		req := httptest.NewRequest(http.MethodGet, "/progress?job=update.full&return="+url.QueryEscape(u), nil)
