@@ -144,6 +144,9 @@ func NewHandler(apiURL, authToken string) http.Handler {
 	// Login is standalone (no layout).
 	h.templates["login.html"] = template.Must(
 		template.New("").Funcs(funcMap).Parse(string(mustRead("login.html"))))
+	// Progress is a standalone HTMX fragment (no layout).
+	h.templates["progress.html"] = template.Must(
+		template.New("progress").Funcs(funcMap).Parse(string(mustRead("progress.html"))))
 
 	h.router = chi.NewRouter()
 
@@ -172,6 +175,9 @@ func NewHandler(apiURL, authToken string) http.Handler {
 
 		// Dashboard.
 		r.Get("/", h.handleDashboard)
+
+		// Generic job progress polling (plugin-agnostic).
+		r.Get("/progress", h.handleProgress)
 
 		// Update plugin (custom handlers for richer UX).
 		r.Get("/update", h.handleUpdate)

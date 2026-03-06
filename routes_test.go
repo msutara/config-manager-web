@@ -1261,8 +1261,12 @@ func TestUpdateRun_Success(t *testing.T) {
 	if w.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", w.Code)
 	}
-	if w.Header().Get("HX-Refresh") != "true" {
-		t.Fatal("should set HX-Refresh header on success")
+	body := w.Body.String()
+	if !strings.Contains(body, "update.full") {
+		t.Fatal("should return progress fragment with job ID")
+	}
+	if !strings.Contains(body, "progress") {
+		t.Fatal("should contain progress polling element")
 	}
 }
 
@@ -1273,11 +1277,15 @@ func TestUpdateRun_APIError(t *testing.T) {
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, req)
 
-	if w.Code != http.StatusInternalServerError {
-		t.Fatalf("expected 500, got %d", w.Code)
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", w.Code)
 	}
-	if !strings.Contains(w.Body.String(), "Failed to start") {
+	body := w.Body.String()
+	if !strings.Contains(body, "Failed to start") {
 		t.Fatal("should show error message")
+	}
+	if !strings.Contains(body, "alert-error") {
+		t.Fatal("should render error alert fragment")
 	}
 }
 
@@ -1313,8 +1321,9 @@ func TestUpdateRun_SecurityType(t *testing.T) {
 	if !strings.Contains(gotBody, `"type":"security"`) {
 		t.Fatalf("API body = %q, want JSON with type:security", gotBody)
 	}
-	if w.Header().Get("HX-Refresh") != "true" {
-		t.Fatal("should set HX-Refresh header on success")
+	body := w.Body.String()
+	if !strings.Contains(body, "update.security") {
+		t.Fatal("should return progress fragment with security job ID")
 	}
 }
 
@@ -1348,8 +1357,9 @@ func TestUpdateRun_DefaultType(t *testing.T) {
 	if !strings.Contains(gotBody, `"type":"full"`) {
 		t.Fatalf("API body = %q, want JSON with type:full", gotBody)
 	}
-	if w.Header().Get("HX-Refresh") != "true" {
-		t.Fatal("should set HX-Refresh header on success")
+	body := w.Body.String()
+	if !strings.Contains(body, "update.full") {
+		t.Fatal("should return progress fragment with full job ID")
 	}
 }
 
@@ -1369,8 +1379,319 @@ func TestUpdateRun_XSSSanitized(t *testing.T) {
 	if strings.Contains(w.Body.String(), "<script>") {
 		t.Fatal("XSS payload should not appear in response")
 	}
-	if w.Header().Get("HX-Refresh") != "true" {
-		t.Fatal("invalid type should default to full and set HX-Refresh")
+	if !strings.Contains(w.Body.String(), "update.full") {
+		t.Fatal("invalid type should default to full and return progress")
+	}
+}
+
+// ---------- Job progress tests ----------
+
+func TestProgress_RunningJob(t *testing.T) {
+	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/v1/jobs/update.full/runs/latest" {
+			json.NewEncoder(w).Encode(JobRun{
+				JobID:     "update.full",
+				Status:    "running",
+				StartedAt: "2026-03-06T12:00:00Z",
+			})
+			return
+		}
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer api.Close()
+
+	h := newTestHandler(t, api.URL, "")
+	req := httptest.NewRequest(http.MethodGet, "/progress?job=update.full", nil)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", w.Code)
+	}
+	body := w.Body.String()
+	if !strings.Contains(body, "every 2s") {
+		t.Fatal("running job should include HTMX polling trigger")
+	}
+	if !strings.Contains(body, "update.full") {
+		t.Fatal("should show job ID")
+	}
+	if !strings.Contains(body, "progress-box") {
+		t.Fatal("should render progress box")
+	}
+}
+
+func TestProgress_CompletedJob(t *testing.T) {
+	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/v1/jobs/update.security/runs/latest" {
+			json.NewEncoder(w).Encode(JobRun{
+				JobID:    "update.security",
+				Status:   "completed",
+				Duration: "45s",
+			})
+			return
+		}
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer api.Close()
+
+	h := newTestHandler(t, api.URL, "")
+	req := httptest.NewRequest(http.MethodGet, "/progress?job=update.security", nil)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", w.Code)
+	}
+	body := w.Body.String()
+	if !strings.Contains(body, "completed") {
+		t.Fatal("should show completed status")
+	}
+	if !strings.Contains(body, "45s") {
+		t.Fatal("should show duration")
+	}
+	if strings.Contains(body, "every 2s") {
+		t.Fatal("completed job should NOT poll")
+	}
+}
+
+func TestProgress_FailedJob(t *testing.T) {
+	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/v1/jobs/network.scan/runs/latest" {
+			json.NewEncoder(w).Encode(JobRun{
+				JobID:    "network.scan",
+				Status:   "failed",
+				Duration: "3s",
+				Error:    "job failed; see server logs",
+			})
+			return
+		}
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer api.Close()
+
+	h := newTestHandler(t, api.URL, "")
+	req := httptest.NewRequest(http.MethodGet, "/progress?job=network.scan", nil)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", w.Code)
+	}
+	body := w.Body.String()
+	if !strings.Contains(body, "failed") {
+		t.Fatal("should show failed status")
+	}
+	if !strings.Contains(body, "alert-error") {
+		t.Fatal("should render error alert")
+	}
+}
+
+func TestProgress_InvalidJobID(t *testing.T) {
+	h := newTestHandler(t, "http://localhost:1", "")
+
+	cases := []string{
+		"",
+		"../etc/passwd",
+		"no-dot",
+		"UPPER.case",
+		"update.full; rm -rf /",
+	}
+	for _, jobID := range cases {
+		req := httptest.NewRequest(http.MethodGet, "/progress?job="+url.QueryEscape(jobID), nil)
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, req)
+
+		if w.Code != http.StatusOK {
+			t.Errorf("job=%q: expected 200, got %d", jobID, w.Code)
+		}
+		body := w.Body.String()
+		if !strings.Contains(body, "alert-error") {
+			t.Errorf("job=%q: expected error fragment, got %s", jobID, body)
+		}
+		// Error fragment must NOT contain hx-trigger (no retry for invalid IDs).
+		if strings.Contains(body, "hx-trigger") {
+			t.Errorf("job=%q: invalid job error should not retry", jobID)
+		}
+	}
+}
+
+func TestProgress_DefaultReturnURL(t *testing.T) {
+	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		json.NewEncoder(w).Encode(JobRun{
+			JobID:  "network.scan",
+			Status: "completed",
+		})
+	}))
+	defer api.Close()
+
+	h := newTestHandler(t, api.URL, "")
+	req := httptest.NewRequest(http.MethodGet, "/progress?job=network.scan", nil)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	body := w.Body.String()
+	if !strings.Contains(body, "/network") {
+		t.Fatal("should derive return URL from plugin name")
+	}
+}
+
+func TestProgress_CustomReturnURL(t *testing.T) {
+	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		json.NewEncoder(w).Encode(JobRun{
+			JobID:  "update.full",
+			Status: "completed",
+		})
+	}))
+	defer api.Close()
+
+	h := newTestHandler(t, api.URL, "")
+	req := httptest.NewRequest(http.MethodGet, "/progress?job=update.full&return=/update", nil)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	body := w.Body.String()
+	if !strings.Contains(body, "/update") {
+		t.Fatal("should use custom return URL")
+	}
+}
+
+func TestProgress_APIError(t *testing.T) {
+	// API that always returns 500 to trigger the error branch.
+	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		http.Error(w, "internal error", http.StatusInternalServerError)
+	}))
+	defer api.Close()
+
+	h := newTestHandler(t, api.URL, "")
+	req := httptest.NewRequest(http.MethodGet, "/progress?job=update.full", nil)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	body := w.Body.String()
+	if !strings.Contains(body, "Failed to check job status") {
+		t.Fatal("should show error when API fails")
+	}
+	if !strings.Contains(body, "alert-error") {
+		t.Fatal("should render error alert")
+	}
+	// Error response must keep polling so transient failures recover.
+	if !strings.Contains(body, "hx-trigger") {
+		t.Fatal("error response must include hx-trigger for retry polling")
+	}
+	if !strings.Contains(body, "retrying") {
+		t.Fatal("error response should indicate retry is happening")
+	}
+}
+
+func TestProgress_APIError_NotRetryable(t *testing.T) {
+	// API returns 404 — non-retryable; polling should stop.
+	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		http.Error(w, `{"error":{"message":"job not found"}}`, http.StatusNotFound)
+	}))
+	defer api.Close()
+
+	h := newTestHandler(t, api.URL, "")
+	req := httptest.NewRequest(http.MethodGet, "/progress?job=update.full", nil)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	body := w.Body.String()
+	if !strings.Contains(body, "alert-error") {
+		t.Fatal("should render error alert for 404")
+	}
+	// Non-retryable errors must NOT keep polling.
+	if strings.Contains(body, "hx-trigger") {
+		t.Fatal("non-retryable 404 error must not include hx-trigger")
+	}
+	if strings.Contains(body, "retrying") {
+		t.Fatal("non-retryable error should not say retrying")
+	}
+	if !strings.Contains(body, "failed") || !strings.Contains(body, "job not found") {
+		t.Fatal("should show terminal failure with API message")
+	}
+}
+
+func TestProgress_UnknownStatus(t *testing.T) {
+	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		json.NewEncoder(w).Encode(JobRun{
+			JobID:  "update.full",
+			Status: "queued",
+		})
+	}))
+	defer api.Close()
+
+	h := newTestHandler(t, api.URL, "")
+	req := httptest.NewRequest(http.MethodGet, "/progress?job=update.full", nil)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	body := w.Body.String()
+	if !strings.Contains(body, "No run data available") {
+		t.Fatal("unknown status should show fallback message")
+	}
+}
+
+func TestProgress_ReturnURL_OpenRedirect(t *testing.T) {
+	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		json.NewEncoder(w).Encode(JobRun{
+			JobID:  "update.full",
+			Status: "completed",
+		})
+	}))
+	defer api.Close()
+
+	h := newTestHandler(t, api.URL, "")
+
+	dangerous := []string{
+		"https://evil.com",
+		"//evil.com",
+		`/\evil.com`,
+		"javascript:alert(1)",
+		"data:text/html,<h1>pwned</h1>",
+		"/update\r\nX-Injected: true",
+		"/update\x00evil",
+	}
+	for _, u := range dangerous {
+		req := httptest.NewRequest(http.MethodGet, "/progress?job=update.full&return="+url.QueryEscape(u), nil)
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, req)
+
+		body := w.Body.String()
+		if strings.Contains(body, u) {
+			t.Errorf("return=%q should be rejected, but found in response", u)
+		}
+		// Should fall back to "/"
+		if !strings.Contains(body, `hx-get="/"`) {
+			t.Errorf("return=%q should fall back to '/', body=%s", u, body)
+		}
+	}
+}
+
+func TestProgress_ReturnURL_Propagated(t *testing.T) {
+	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		json.NewEncoder(w).Encode(JobRun{
+			JobID:  "update.full",
+			Status: "running",
+		})
+	}))
+	defer api.Close()
+
+	h := newTestHandler(t, api.URL, "")
+	req := httptest.NewRequest(http.MethodGet, "/progress?job=update.full&return=/update", nil)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	body := w.Body.String()
+	// The polling URL in the running fragment must carry the return param
+	// and must use correct HTML entity encoding (single &amp;, not &amp;amp;).
+	if !strings.Contains(body, "&amp;return=") {
+		t.Fatal("running fragment must propagate return URL with correct &amp; encoding")
+	}
+	if strings.Contains(body, "&amp;amp;return=") {
+		t.Fatal("return URL must not be double-encoded")
+	}
+	if !strings.Contains(body, "return=%2Fupdate") {
+		t.Fatal("return URL must be URL-encoded in the polling query string")
 	}
 }
 

@@ -65,15 +65,31 @@ type apiErrorEnvelope struct {
 	} `json:"error"`
 }
 
+// APIError is returned when the core API responds with a non-2xx status code.
+// Callers can type-assert to distinguish retryable server errors (5xx) from
+// non-retryable client errors (4xx).
+type APIError struct {
+	StatusCode int
+	Message    string
+}
+
+func (e *APIError) Error() string { return e.Message }
+
+// Retryable returns true for 5xx and 429 (rate-limit) status codes.
+// 4xx errors (except 429) indicate a permanent problem and should not be retried.
+func (e *APIError) Retryable() bool {
+	return e.StatusCode >= 500 || e.StatusCode == http.StatusTooManyRequests
+}
+
 // friendlyAPIError extracts a human-readable message from a raw JSON error
 // body.  If the body is a well-formed error envelope with a message, only the
 // message is returned.  Otherwise it falls back to the full body.
-func friendlyAPIError(method, path string, status int, body []byte) error {
+func friendlyAPIError(method, path string, status int, body []byte) *APIError {
 	var env apiErrorEnvelope
 	if json.Unmarshal(body, &env) == nil && env.Error.Message != "" {
-		return fmt.Errorf("%s", env.Error.Message)
+		return &APIError{StatusCode: status, Message: env.Error.Message}
 	}
-	return fmt.Errorf("api %s returned %d: %s", path, status, body)
+	return &APIError{StatusCode: status, Message: fmt.Sprintf("api %s returned %d: %s", path, status, body)}
 }
 
 // get performs an authenticated GET and decodes JSON into dst.
@@ -95,7 +111,7 @@ func (c *apiClient) get(ctx context.Context, path string, dst any) error {
 	if resp.StatusCode != http.StatusOK {
 		respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 1024)) //nolint:errcheck // best-effort error detail
 		if loc := resp.Header.Get("Location"); loc != "" && resp.StatusCode >= 300 && resp.StatusCode < 400 {
-			return fmt.Errorf("api %s returned %d redirect to %s: %s", path, resp.StatusCode, loc, respBody)
+			return &APIError{StatusCode: resp.StatusCode, Message: fmt.Sprintf("api %s returned %d redirect to %s: %s", path, resp.StatusCode, loc, respBody)}
 		}
 		return friendlyAPIError("GET", path, resp.StatusCode, respBody)
 	}
@@ -133,7 +149,7 @@ func (c *apiClient) post(ctx context.Context, path string, body io.Reader, dst a
 		resp.StatusCode != http.StatusNoContent {
 		respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 1024)) //nolint:errcheck // best-effort error detail
 		if loc := resp.Header.Get("Location"); loc != "" && resp.StatusCode >= 300 && resp.StatusCode < 400 {
-			return fmt.Errorf("api %s returned %d redirect to %s: %s", path, resp.StatusCode, loc, respBody)
+			return &APIError{StatusCode: resp.StatusCode, Message: fmt.Sprintf("api %s returned %d redirect to %s: %s", path, resp.StatusCode, loc, respBody)}
 		}
 		return friendlyAPIError("POST", path, resp.StatusCode, respBody)
 	}
@@ -170,7 +186,7 @@ func (c *apiClient) put(ctx context.Context, path string, body io.Reader, dst an
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusNoContent {
 		respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 1024)) //nolint:errcheck // best-effort error detail
 		if loc := resp.Header.Get("Location"); loc != "" && resp.StatusCode >= 300 && resp.StatusCode < 400 {
-			return fmt.Errorf("api %s returned %d redirect to %s: %s", path, resp.StatusCode, loc, respBody)
+			return &APIError{StatusCode: resp.StatusCode, Message: fmt.Sprintf("api %s returned %d redirect to %s: %s", path, resp.StatusCode, loc, respBody)}
 		}
 		return friendlyAPIError("PUT", path, resp.StatusCode, respBody)
 	}
@@ -247,6 +263,16 @@ type NodeInfo struct {
 	Kernel        string `json:"kernel"`
 	Arch          string `json:"arch"`
 	UptimeSeconds int    `json:"uptime_seconds"`
+}
+
+// JobRun holds the response from GET /api/v1/jobs/{id}/runs/latest.
+type JobRun struct {
+	JobID     string `json:"job_id"`
+	Status    string `json:"status"` // Core API: "running", "completed", "failed"; web-layer synthetic: "error"
+	StartedAt string `json:"started_at,omitempty"`
+	EndedAt   string `json:"ended_at,omitempty"`
+	Duration  string `json:"duration,omitempty"`
+	Error     string `json:"error,omitempty"`
 }
 
 // ---------- Update plugin types ----------

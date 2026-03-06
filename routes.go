@@ -3,12 +3,14 @@ package web
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"html"
 	"log/slog"
 	"net/http"
 	"net/url"
 	"path"
+	"regexp"
 	"strings"
 	"sync"
 	"unicode"
@@ -381,7 +383,9 @@ func (h *Handler) handleUpdateRun(w http.ResponseWriter, r *http.Request) {
 	payload, err := json.Marshal(map[string]string{"type": updateType})
 	if err != nil {
 		slog.Error("web: failed to marshal update request", "error", err)
-		http.Error(w, "internal error", http.StatusInternalServerError)
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		//nolint:errcheck // HTTP response write — no recovery possible
+		_, _ = w.Write([]byte(`<div class="alert alert-error">Internal error</div>`))
 		return
 	}
 	body := bytes.NewReader(payload)
@@ -390,7 +394,6 @@ func (h *Handler) handleUpdateRun(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		slog.Error("web: failed to trigger update", "type", updateType, "error", err)
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		w.WriteHeader(http.StatusInternalServerError)
 		// html.EscapeString on error message for defense in depth.
 		safeErr := html.EscapeString(err.Error())
 		//nolint:errcheck // HTTP response write — no recovery possible
@@ -399,8 +402,99 @@ func (h *Handler) handleUpdateRun(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Tell HTMX to do a full page refresh so the Last Run status tile updates.
-	w.Header().Set("HX-Refresh", "true")
+	// Return progress polling fragment. HTMX will auto-poll until done.
+	jobID := "update." + updateType
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	data := map[string]string{
+		"JobID":     jobID,
+		"Status":    "running",
+		"ReturnURL": "/update",
+	}
+	if err := h.templates["progress.html"].Execute(w, data); err != nil {
+		slog.Error("web: failed to render progress", "error", err)
+	}
+}
+
+// validJobID matches job IDs in the {plugin}.{job} dot-notation.
+var validJobID = regexp.MustCompile(`^[a-z][a-z0-9-]*\.[a-z][a-z0-9-]*$`)
+
+// handleProgress polls the core job API and returns an HTMX fragment showing
+// the current run state. While the job is running the fragment includes
+// hx-trigger="every 2s" so HTMX re-polls automatically. When the job
+// completes or fails the polling stops. This endpoint is plugin-agnostic:
+// any job ID registered with the core scheduler works.
+func (h *Handler) handleProgress(w http.ResponseWriter, r *http.Request) {
+	jobID := r.URL.Query().Get("job")
+	if !validJobID.MatchString(jobID) {
+		slog.Warn("web: invalid job id in progress poll", "job", jobID, "remote_addr", r.RemoteAddr)
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		safeJobID := html.EscapeString(jobID)
+		//nolint:errcheck // HTTP response write — no recovery possible
+		_, _ = w.Write([]byte(
+			`<div class="alert alert-error">Invalid job ID: ` + safeJobID + `</div>`))
+		return
+	}
+
+	returnURL := r.URL.Query().Get("return")
+	if returnURL == "" {
+		// Default: derive from plugin name (first segment of job ID).
+		plugin := jobID[:strings.Index(jobID, ".")]
+		returnURL = "/" + plugin
+	}
+
+	// Restrict return URL to relative paths to prevent open redirects.
+	// This is the sole URL-safety gate — html/template does not sanitise
+	// custom attributes like hx-get (only href/src/action).
+	// Block backslash: browsers (WHATWG URL spec) normalise \ to /, so
+	// "/\evil.com" becomes "//evil.com" (protocol-relative off-origin).
+	if !strings.HasPrefix(returnURL, "/") || strings.HasPrefix(returnURL, "//") || strings.Contains(returnURL, `\`) {
+		returnURL = "/"
+	}
+	// Reject non-UTF-8 and control characters to avoid surprising
+	// behaviour when reflected into hx-get attributes.
+	if !utf8.ValidString(returnURL) {
+		returnURL = "/"
+	} else {
+		for _, ch := range returnURL {
+			if unicode.IsControl(ch) {
+				returnURL = "/"
+				break
+			}
+		}
+	}
+
+	var run JobRun
+	err := h.client.get(r.Context(), "/api/v1/jobs/"+jobID+"/runs/latest", &run)
+	if err != nil {
+		slog.Warn("web: failed to poll job progress", "job", jobID, "error", err)
+		// Distinguish retryable (5xx/network) from non-retryable (4xx) errors.
+		// Non-retryable errors use "failed" status which stops polling.
+		status := "error"
+		var apiErr *APIError
+		if errors.As(err, &apiErr) && !apiErr.Retryable() {
+			status = "failed"
+		}
+		run = JobRun{JobID: jobID, Status: status, Error: err.Error()}
+	}
+
+	// Use the validated request jobID as authoritative value for rendering,
+	// not the API response's job_id which could differ or be empty.
+	if run.JobID != "" && run.JobID != jobID {
+		slog.Warn("web: job id mismatch in progress poll", "expected", jobID, "got", run.JobID)
+	}
+
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	data := map[string]string{
+		"JobID":     jobID,
+		"Status":    run.Status,
+		"StartedAt": run.StartedAt,
+		"Duration":  run.Duration,
+		"Error":     run.Error,
+		"ReturnURL": returnURL,
+	}
+	if err := h.templates["progress.html"].Execute(w, data); err != nil {
+		slog.Error("web: failed to render progress", "error", err)
+	}
 }
 
 // cronShortcuts are the standard @-shortcuts accepted by the core scheduler.
