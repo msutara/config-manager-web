@@ -468,9 +468,15 @@ func (h *Handler) handleProgress(w http.ResponseWriter, r *http.Request) {
 		run = JobRun{JobID: jobID, Status: "error", Error: err.Error()}
 	}
 
+	// Use the validated request jobID as authoritative value for rendering,
+	// not the API response's job_id which could differ or be empty.
+	if run.JobID != "" && run.JobID != jobID {
+		slog.Warn("web: job id mismatch in progress poll", "expected", jobID, "got", run.JobID)
+	}
+
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	data := map[string]string{
-		"JobID":     run.JobID,
+		"JobID":     jobID,
 		"Status":    run.Status,
 		"StartedAt": run.StartedAt,
 		"Duration":  run.Duration,

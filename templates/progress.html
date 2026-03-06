@@ -1,6 +1,6 @@
 {{ if eq .Status "running" }}
 <div class="progress-box"
-     hx-get="/progress?job={{ .JobID }}&amp;return={{ urlquery .ReturnURL }}"
+     hx-get="/progress?job={{ urlquery .JobID }}&amp;return={{ urlquery .ReturnURL }}"
      hx-trigger="every 2s"
      hx-swap="outerHTML">
     <span class="spinner spinner-active"></span>
@@ -18,7 +18,7 @@
 </div>
 {{ else if eq .Status "error" }}
 <div class="alert alert-error"
-     hx-get="/progress?job={{ .JobID }}&amp;return={{ urlquery .ReturnURL }}"
+     hx-get="/progress?job={{ urlquery .JobID }}&amp;return={{ urlquery .ReturnURL }}"
      hx-trigger="every 5s" hx-swap="outerHTML">
     Failed to check job status{{ if .Error }}: {{ .Error }}{{ end }} (retrying…)
 </div>
