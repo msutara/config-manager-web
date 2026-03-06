@@ -65,15 +65,31 @@ type apiErrorEnvelope struct {
 	} `json:"error"`
 }
 
+// APIError is returned when the core API responds with a non-2xx status code.
+// Callers can type-assert to distinguish retryable server errors (5xx) from
+// non-retryable client errors (4xx).
+type APIError struct {
+	StatusCode int
+	Message    string
+}
+
+func (e *APIError) Error() string { return e.Message }
+
+// Retryable returns true for 5xx and 429 (rate-limit) status codes.
+// 4xx errors (except 429) indicate a permanent problem and should not be retried.
+func (e *APIError) Retryable() bool {
+	return e.StatusCode >= 500 || e.StatusCode == http.StatusTooManyRequests
+}
+
 // friendlyAPIError extracts a human-readable message from a raw JSON error
 // body.  If the body is a well-formed error envelope with a message, only the
 // message is returned.  Otherwise it falls back to the full body.
-func friendlyAPIError(method, path string, status int, body []byte) error {
+func friendlyAPIError(method, path string, status int, body []byte) *APIError {
 	var env apiErrorEnvelope
 	if json.Unmarshal(body, &env) == nil && env.Error.Message != "" {
-		return fmt.Errorf("%s", env.Error.Message)
+		return &APIError{StatusCode: status, Message: env.Error.Message}
 	}
-	return fmt.Errorf("api %s returned %d: %s", path, status, body)
+	return &APIError{StatusCode: status, Message: fmt.Sprintf("api %s returned %d: %s", path, status, body)}
 }
 
 // get performs an authenticated GET and decodes JSON into dst.
@@ -252,7 +268,7 @@ type NodeInfo struct {
 // JobRun holds the response from GET /api/v1/jobs/{id}/runs/latest.
 type JobRun struct {
 	JobID     string `json:"job_id"`
-	Status    string `json:"status"` // "running", "completed", "failed"
+	Status    string `json:"status"` // Core API: "running", "completed", "failed"; web-layer synthetic: "error"
 	StartedAt string `json:"started_at,omitempty"`
 	EndedAt   string `json:"ended_at,omitempty"`
 	Duration  string `json:"duration,omitempty"`

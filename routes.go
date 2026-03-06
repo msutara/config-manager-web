@@ -3,6 +3,7 @@ package web
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"html"
 	"log/slog"
@@ -466,7 +467,14 @@ func (h *Handler) handleProgress(w http.ResponseWriter, r *http.Request) {
 	err := h.client.get(r.Context(), "/api/v1/jobs/"+jobID+"/runs/latest", &run)
 	if err != nil {
 		slog.Warn("web: failed to poll job progress", "job", jobID, "error", err)
-		run = JobRun{JobID: jobID, Status: "error", Error: err.Error()}
+		// Distinguish retryable (5xx/network) from non-retryable (4xx) errors.
+		// Non-retryable errors use "failed" status which stops polling.
+		status := "error"
+		var apiErr *APIError
+		if errors.As(err, &apiErr) && !apiErr.Retryable() {
+			status = "failed"
+		}
+		run = JobRun{JobID: jobID, Status: status, Error: err.Error()}
 	}
 
 	// Use the validated request jobID as authoritative value for rendering,

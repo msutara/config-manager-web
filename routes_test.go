@@ -1583,6 +1583,34 @@ func TestProgress_APIError(t *testing.T) {
 	}
 }
 
+func TestProgress_APIError_NotRetryable(t *testing.T) {
+	// API returns 404 — non-retryable; polling should stop.
+	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		http.Error(w, `{"error":{"message":"job not found"}}`, http.StatusNotFound)
+	}))
+	defer api.Close()
+
+	h := newTestHandler(t, api.URL, "")
+	req := httptest.NewRequest(http.MethodGet, "/progress?job=update.full", nil)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	body := w.Body.String()
+	if !strings.Contains(body, "alert-error") {
+		t.Fatal("should render error alert for 404")
+	}
+	// Non-retryable errors must NOT keep polling.
+	if strings.Contains(body, "hx-trigger") {
+		t.Fatal("non-retryable 404 error must not include hx-trigger")
+	}
+	if strings.Contains(body, "retrying") {
+		t.Fatal("non-retryable error should not say retrying")
+	}
+	if !strings.Contains(body, "failed") || !strings.Contains(body, "job not found") {
+		t.Fatal("should show terminal failure with API message")
+	}
+}
+
 func TestProgress_UnknownStatus(t *testing.T) {
 	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		json.NewEncoder(w).Encode(JobRun{
