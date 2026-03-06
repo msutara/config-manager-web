@@ -480,6 +480,9 @@ func (h *Handler) handleProgress(w http.ResponseWriter, r *http.Request) {
 	retryCount := 0
 	if v := r.URL.Query().Get("retry"); v != "" {
 		retryCount, _ = strconv.Atoi(v)
+		if retryCount < 0 {
+			retryCount = 0
+		}
 	}
 
 	if err != nil {

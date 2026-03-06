@@ -1685,6 +1685,111 @@ func TestProgress_SuccessResetsRetryCount(t *testing.T) {
 	}
 }
 
+func TestProgress_ErrorRetryFirstError(t *testing.T) {
+	// First error (no retry param) should increment to retry=1.
+	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		http.Error(w, "internal error", http.StatusInternalServerError)
+	}))
+	defer api.Close()
+
+	h := newTestHandler(t, api.URL, "")
+	req := httptest.NewRequest(http.MethodGet, "/progress?job=update.full", nil)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	body := w.Body.String()
+	if !strings.Contains(body, "retry=1") {
+		t.Fatal("first error should set retry=1 in polling URL")
+	}
+	if !strings.Contains(body, "retrying") {
+		t.Fatal("first error should show retrying message")
+	}
+}
+
+func TestProgress_ErrorRetryNegativeClamped(t *testing.T) {
+	// Negative retry value should be clamped to 0 and treated as first error.
+	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		http.Error(w, "internal error", http.StatusInternalServerError)
+	}))
+	defer api.Close()
+
+	h := newTestHandler(t, api.URL, "")
+	req := httptest.NewRequest(http.MethodGet, "/progress?job=update.full&retry=-100", nil)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	body := w.Body.String()
+	if !strings.Contains(body, "retry=1") {
+		t.Fatal("negative retry should be clamped to 0, then incremented to 1")
+	}
+	if strings.Contains(body, "retry=-") {
+		t.Fatal("negative retry value must not propagate")
+	}
+}
+
+func TestProgress_ErrorRetryNonNumericClamped(t *testing.T) {
+	// Non-numeric retry value should be treated as 0 (strconv.Atoi returns 0).
+	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		http.Error(w, "internal error", http.StatusInternalServerError)
+	}))
+	defer api.Close()
+
+	h := newTestHandler(t, api.URL, "")
+	req := httptest.NewRequest(http.MethodGet, "/progress?job=update.full&retry=abc", nil)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	body := w.Body.String()
+	if !strings.Contains(body, "retry=1") {
+		t.Fatal("non-numeric retry should default to 0, then increment to 1")
+	}
+}
+
+func TestProgress_ErrorRetryBoundaryJustUnderCap(t *testing.T) {
+	// retry=29 is just under the cap of 30 — should continue polling.
+	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		http.Error(w, "internal error", http.StatusInternalServerError)
+	}))
+	defer api.Close()
+
+	h := newTestHandler(t, api.URL, "")
+	req := httptest.NewRequest(http.MethodGet, "/progress?job=update.full&retry=29", nil)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	body := w.Body.String()
+	if !strings.Contains(body, "retry=30") {
+		t.Fatal("retry=29 should increment to 30 in polling URL")
+	}
+	if !strings.Contains(body, "retrying") {
+		t.Fatal("retry=29 should still be retrying (under cap)")
+	}
+	if strings.Contains(body, "too many retries") {
+		t.Fatal("retry=29 should not trigger cap message")
+	}
+}
+
+func TestProgress_ErrorRetryAboveCap(t *testing.T) {
+	// retry=31 is above the cap — should stop polling.
+	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		http.Error(w, "internal error", http.StatusInternalServerError)
+	}))
+	defer api.Close()
+
+	h := newTestHandler(t, api.URL, "")
+	req := httptest.NewRequest(http.MethodGet, "/progress?job=update.full&retry=31", nil)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	body := w.Body.String()
+	if !strings.Contains(body, "too many retries") {
+		t.Fatal("retry=31 (above cap) should show cap message")
+	}
+	if strings.Contains(body, "hx-trigger") {
+		t.Fatal("above cap must not include polling trigger")
+	}
+}
+
 func TestProgress_UnknownStatus(t *testing.T) {
 	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		json.NewEncoder(w).Encode(JobRun{
