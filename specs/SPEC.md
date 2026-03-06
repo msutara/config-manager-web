@@ -38,6 +38,8 @@ No external file dependencies at runtime.
 | `/update/settings` | POST | Yes | Save update plugin settings (htmx fragment) |
 | `/progress` | GET | Yes | Job progress polling (plugin-agnostic htmx fragment) |
 | `/network` | GET | Yes | Network information page |
+| `/{plugin}` | GET | Yes | Generic plugin page (dynamic, regex: `[a-z][a-z0-9-]*`) |
+| `/{plugin}/actions/*` | POST | Yes | Generic plugin action proxy |
 | `/static/*` | GET | No | Embedded static assets |
 
 ## Authentication
@@ -156,8 +158,12 @@ job completes or fails under normal conditions.
 - **Failed** — shows error alert with message, polling stops (terminal job state)
 - **API error (transient)** — when the poll request itself fails (e.g. core
   temporarily unreachable), shows "Failed to check job status … (retrying…)"
-  and backs off polling to `hx-trigger="every 5s"` until a successful
-  response or terminal job state is reached
+  and backs off polling to `hx-trigger="every 5s"`.  A `retry` counter in
+  the polling URL tracks consecutive errors; after 30 retries (~2.5 minutes)
+  the status transitions to "failed" with a "please refresh" message to
+  prevent infinite polling when core is down
+- **Unknown** — fallback when the status string is unrecognised or empty;
+  shows "No run data available" with no further polling
 
 The `/progress` endpoint is plugin-agnostic: any job ID registered with
 the core scheduler works (e.g. `update.full`, `network.scan`).  The

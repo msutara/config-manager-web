@@ -1,5 +1,11 @@
 # Config Manager Web UI Usage
 
+## Requirements
+
+- **config-manager-core ≥ v0.4.0** — the web UI uses the core's async jobs
+  API (`POST /api/v1/jobs/trigger`) for update operations.  Older core
+  versions do not expose this endpoint and update actions will fail.
+
 ## Accessing the Web UI
 
 When the web module is enabled, visit `http://<device-ip>:7788/` in any browser
@@ -42,8 +48,9 @@ After triggering an update, a **progress indicator** appears showing real-time
 job status.  Under normal conditions, the page polls `/progress` every 2 seconds
 to check the core API until the job completes or fails.  If a poll returns an
 error, the UI automatically backs off and polls less frequently (about every
-5 seconds) until a successful response or terminal job state is reached.  On
-completion, the update page reloads automatically to show updated Last Run
+5 seconds).  After 30 consecutive errors (~2.5 minutes) polling stops with a
+"please refresh" message to avoid wasting resources when the core is down.
+On completion, the update page reloads automatically to show updated Last Run
 status.  This progress mechanism is generic — any plugin that registers
 scheduled jobs with the core will benefit from it.
 
