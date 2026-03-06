@@ -86,11 +86,11 @@ Displays:
 
 Actions:
 
-- **Run Full Update** — `POST /api/v1/plugins/update/run` with `{"type":"full"}`
-  JSON body, confirmation dialog
-- **Run Security Update** — `POST /api/v1/plugins/update/run` with
-  `{"type":"security"}` JSON body, confirmation dialog (only shown when
-  security source is available)
+- **Run Full Update** — `POST /api/v1/jobs/trigger` with `{"job_id":"update.full"}`
+  (202 Accepted), confirmation dialog
+- **Run Security Update** — `POST /api/v1/jobs/trigger` with
+  `{"job_id":"update.security"}` (202 Accepted), confirmation dialog (only shown
+  when security source is available)
 
 Settings (editable form with htmx):
 

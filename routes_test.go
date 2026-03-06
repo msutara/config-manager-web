@@ -94,9 +94,9 @@ func mockAPI(t *testing.T) *httptest.Server {
 		})
 	})
 
-	mux.HandleFunc("/api/v1/plugins/update/run", func(w http.ResponseWriter, _ *http.Request) {
+	mux.HandleFunc("/api/v1/jobs/trigger", func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusAccepted)
-		json.NewEncoder(w).Encode(map[string]string{"status": "started"})
+		json.NewEncoder(w).Encode(map[string]string{"status": "accepted"})
 	})
 
 	mux.HandleFunc("/api/v1/plugins/network/interfaces", func(w http.ResponseWriter, _ *http.Request) {
@@ -263,7 +263,7 @@ func TestAPIClient_PostSuccess(t *testing.T) {
 	defer api.Close()
 
 	c := newAPIClient(api.URL, "")
-	err := c.post(context.Background(), "/api/v1/plugins/update/run", nil, nil)
+	err := c.post(context.Background(), "/api/v1/jobs/trigger", nil, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -1315,11 +1315,11 @@ func TestUpdateRun_SecurityType(t *testing.T) {
 	if gotMethod != http.MethodPost {
 		t.Fatalf("API method = %q, want POST", gotMethod)
 	}
-	if gotPath != "/api/v1/plugins/update/run" {
-		t.Fatalf("API path = %q, want /api/v1/plugins/update/run", gotPath)
+	if gotPath != "/api/v1/jobs/trigger" {
+		t.Fatalf("API path = %q, want /api/v1/jobs/trigger", gotPath)
 	}
-	if !strings.Contains(gotBody, `"type":"security"`) {
-		t.Fatalf("API body = %q, want JSON with type:security", gotBody)
+	if !strings.Contains(gotBody, `"job_id":"update.security"`) {
+		t.Fatalf("API body = %q, want JSON with job_id:update.security", gotBody)
 	}
 	body := w.Body.String()
 	if !strings.Contains(body, "update.security") {
@@ -1351,11 +1351,11 @@ func TestUpdateRun_DefaultType(t *testing.T) {
 	if gotMethod != http.MethodPost {
 		t.Fatalf("API method = %q, want POST", gotMethod)
 	}
-	if gotPath != "/api/v1/plugins/update/run" {
-		t.Fatalf("API path = %q, want /api/v1/plugins/update/run", gotPath)
+	if gotPath != "/api/v1/jobs/trigger" {
+		t.Fatalf("API path = %q, want /api/v1/jobs/trigger", gotPath)
 	}
-	if !strings.Contains(gotBody, `"type":"full"`) {
-		t.Fatalf("API body = %q, want JSON with type:full", gotBody)
+	if !strings.Contains(gotBody, `"job_id":"update.full"`) {
+		t.Fatalf("API body = %q, want JSON with job_id:update.full", gotBody)
 	}
 	body := w.Body.String()
 	if !strings.Contains(body, "update.full") {

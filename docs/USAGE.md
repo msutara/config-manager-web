@@ -32,7 +32,9 @@ View pending updates, trigger operations, and edit settings:
 - **Last Run** — type, status, timestamp, duration, and package count
 - **Log Viewer** — collapsible section showing raw log output from the last run
 - **Run Full Update** — triggers `apt-get upgrade` for all packages (confirmation
-  dialog prevents accidental clicks)
+  dialog prevents accidental clicks).  Uses the core's async jobs API
+  (`POST /api/v1/jobs/trigger`) so the scheduler tracks the run and progress
+  polling shows real-time status.
 - **Run Security Update** — triggers security-only update with confirmation
   (hidden on systems without a separate security repository)
 

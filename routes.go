@@ -368,7 +368,10 @@ func (h *Handler) handleUpdate(w http.ResponseWriter, r *http.Request) {
 	h.render(w, "update.html", h.withPlugins(r, data))
 }
 
-// handleUpdateRun triggers an update via the API and returns a status fragment.
+// handleUpdateRun triggers an update via the async jobs API and returns a
+// progress polling fragment.  Uses /api/v1/jobs/trigger (not the plugin's
+// synchronous /run endpoint) so the scheduler records the run and progress
+// polling works correctly.
 func (h *Handler) handleUpdateRun(w http.ResponseWriter, r *http.Request) {
 	updateType := r.FormValue("type")
 	// Validate against allowlist to prevent XSS.
@@ -379,10 +382,10 @@ func (h *Handler) handleUpdateRun(w http.ResponseWriter, r *http.Request) {
 		updateType = "full"
 	}
 
-	apiPath := "/api/v1/plugins/update/run"
-	payload, err := json.Marshal(map[string]string{"type": updateType})
+	jobID := "update." + updateType
+	payload, err := json.Marshal(map[string]string{"job_id": jobID})
 	if err != nil {
-		slog.Error("web: failed to marshal update request", "error", err)
+		slog.Error("web: failed to marshal trigger request", "error", err)
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		//nolint:errcheck // HTTP response write — no recovery possible
 		_, _ = w.Write([]byte(`<div class="alert alert-error">Internal error</div>`))
@@ -390,7 +393,7 @@ func (h *Handler) handleUpdateRun(w http.ResponseWriter, r *http.Request) {
 	}
 	body := bytes.NewReader(payload)
 
-	err = h.client.post(r.Context(), apiPath, body, nil)
+	err = h.client.post(r.Context(), "/api/v1/jobs/trigger", body, nil)
 	if err != nil {
 		slog.Error("web: failed to trigger update", "type", updateType, "error", err)
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
@@ -403,7 +406,6 @@ func (h *Handler) handleUpdateRun(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Return progress polling fragment. HTMX will auto-poll until done.
-	jobID := "update." + updateType
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	data := map[string]string{
 		"JobID":     jobID,
