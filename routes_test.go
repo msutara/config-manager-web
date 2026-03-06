@@ -1277,11 +1277,15 @@ func TestUpdateRun_APIError(t *testing.T) {
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, req)
 
-	if w.Code != http.StatusInternalServerError {
-		t.Fatalf("expected 500, got %d", w.Code)
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", w.Code)
 	}
-	if !strings.Contains(w.Body.String(), "Failed to start") {
+	body := w.Body.String()
+	if !strings.Contains(body, "Failed to start") {
 		t.Fatal("should show error message")
+	}
+	if !strings.Contains(body, "alert-error") {
+		t.Fatal("should render error alert fragment")
 	}
 }
 

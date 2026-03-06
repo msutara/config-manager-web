@@ -382,7 +382,9 @@ func (h *Handler) handleUpdateRun(w http.ResponseWriter, r *http.Request) {
 	payload, err := json.Marshal(map[string]string{"type": updateType})
 	if err != nil {
 		slog.Error("web: failed to marshal update request", "error", err)
-		http.Error(w, "internal error", http.StatusInternalServerError)
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		//nolint:errcheck // HTTP response write — no recovery possible
+		_, _ = w.Write([]byte(`<div class="alert alert-error">Internal error</div>`))
 		return
 	}
 	body := bytes.NewReader(payload)
@@ -391,7 +393,6 @@ func (h *Handler) handleUpdateRun(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		slog.Error("web: failed to trigger update", "type", updateType, "error", err)
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		w.WriteHeader(http.StatusInternalServerError)
 		// html.EscapeString on error message for defense in depth.
 		safeErr := html.EscapeString(err.Error())
 		//nolint:errcheck // HTTP response write — no recovery possible
@@ -453,8 +454,8 @@ func (h *Handler) handleProgress(w http.ResponseWriter, r *http.Request) {
 	if !utf8.ValidString(returnURL) {
 		returnURL = "/"
 	} else {
-		for _, r := range returnURL {
-			if unicode.IsControl(r) {
+		for _, ch := range returnURL {
+			if unicode.IsControl(ch) {
 				returnURL = "/"
 				break
 			}
