@@ -42,6 +42,13 @@ Generic plugin pages fetch all GET endpoints concurrently. A **semaphore**
 (channel of size 10) caps the number of in-flight API calls per request,
 preventing a plugin with many endpoints from overwhelming the core API.
 
+### Response body limit
+
+Every API response is capped at **2 MB** before JSON decoding
+(`maxResponseBytes` in `apiclient.go`). This prevents unbounded memory
+allocation on ARM devices with limited RAM. Oversized responses return a
+descriptive error; the constant is a single-line change if it needs tuning.
+
 ### RoutePrefix validation
 
 Plugin registry entries include a `RoutePrefix` used to build API paths.

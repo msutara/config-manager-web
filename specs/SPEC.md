@@ -171,6 +171,12 @@ locking).
 
 ## Error Handling
 
+- **Response body size limit**: the API client enforces a maximum response
+  size (`maxResponseBytes` in `apiclient.go`, default ~2 MB) before JSON
+  decoding. Responses that exceed this limit produce a clear
+  `response body exceeds <limit> byte limit` error instead of allocating
+  unbounded memory. The 256 KB log truncation in `handleUpdate` operates
+  at the template layer and is complementary.
 - API errors displayed as alert banners on the relevant page
 - Template render errors logged and return 500
 - Default-show behavior: pages render with error messages rather than blank

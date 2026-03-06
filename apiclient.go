@@ -20,6 +20,29 @@ type apiClient struct {
 	http    *http.Client
 }
 
+// maxResponseBytes caps the amount of response body data the client will read
+// before decoding JSON.  This prevents unbounded memory allocation when the
+// API returns unexpectedly large payloads (e.g. verbose update logs) — important
+// on ARM devices with limited RAM.
+const maxResponseBytes = 2 << 20 // 2 MB
+
+// decodeJSON reads up to maxResponseBytes+1 from r, returning a clear error
+// when the response exceeds the limit rather than the ambiguous "unexpected
+// EOF" produced by json.NewDecoder over io.LimitReader.
+func decodeJSON(r io.Reader, dst any) error {
+	buf, err := io.ReadAll(io.LimitReader(r, maxResponseBytes+1))
+	if err != nil {
+		return fmt.Errorf("read response: %w", err)
+	}
+	if len(buf) > maxResponseBytes {
+		return fmt.Errorf("response body exceeds %d byte limit", maxResponseBytes)
+	}
+	if err := json.Unmarshal(buf, dst); err != nil {
+		return fmt.Errorf("decode response: %w", err)
+	}
+	return nil
+}
+
 func newAPIClient(baseURL, token string) *apiClient {
 	return &apiClient{
 		baseURL: baseURL,
@@ -78,8 +101,8 @@ func (c *apiClient) get(ctx context.Context, path string, dst any) error {
 	}
 
 	if dst != nil {
-		if err := json.NewDecoder(resp.Body).Decode(dst); err != nil {
-			return fmt.Errorf("decode response: %w", err)
+		if err := decodeJSON(resp.Body, dst); err != nil {
+			return err
 		}
 	}
 
@@ -116,8 +139,8 @@ func (c *apiClient) post(ctx context.Context, path string, body io.Reader, dst a
 	}
 
 	if dst != nil && resp.StatusCode != http.StatusNoContent {
-		if err := json.NewDecoder(resp.Body).Decode(dst); err != nil {
-			return fmt.Errorf("decode response: %w", err)
+		if err := decodeJSON(resp.Body, dst); err != nil {
+			return err
 		}
 	}
 
@@ -153,8 +176,8 @@ func (c *apiClient) put(ctx context.Context, path string, body io.Reader, dst an
 	}
 
 	if dst != nil && resp.StatusCode != http.StatusNoContent {
-		if err := json.NewDecoder(resp.Body).Decode(dst); err != nil {
-			return fmt.Errorf("decode response: %w", err)
+		if err := decodeJSON(resp.Body, dst); err != nil {
+			return err
 		}
 	}
 
