@@ -1442,15 +1442,67 @@ func TestProgress_CompletedJob(t *testing.T) {
 	if w.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", w.Code)
 	}
-	body := w.Body.String()
-	if !strings.Contains(body, "completed") {
-		t.Fatal("should show completed status")
+	// Completed jobs return HX-Redirect instead of rendering a fragment.
+	redirect := w.Header().Get("HX-Redirect")
+	if redirect != "/update" {
+		t.Fatalf("expected HX-Redirect /update, got %q", redirect)
 	}
-	if !strings.Contains(body, "45s") {
-		t.Fatal("should show duration")
+	if body := w.Body.String(); body != "" {
+		t.Fatalf("expected empty body for redirect, got %q", body)
 	}
-	if strings.Contains(body, "every 2s") {
-		t.Fatal("completed job should NOT poll")
+}
+
+func TestProgress_CompletedJobCustomReturn(t *testing.T) {
+	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/v1/jobs/network.scan/runs/latest" {
+			json.NewEncoder(w).Encode(JobRun{
+				JobID:  "network.scan",
+				Status: "completed",
+			})
+			return
+		}
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer api.Close()
+
+	h := newTestHandler(t, api.URL, "")
+	req := httptest.NewRequest(http.MethodGet, "/progress?job=network.scan&return=/network", nil)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	redirect := w.Header().Get("HX-Redirect")
+	if redirect != "/network" {
+		t.Fatalf("expected HX-Redirect /network, got %q", redirect)
+	}
+}
+
+func TestProgress_CompletedJobWithError(t *testing.T) {
+	// Even if the API returns completed with an error message, the handler
+	// should still redirect (the error is informational, not terminal).
+	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/v1/jobs/update.full/runs/latest" {
+			json.NewEncoder(w).Encode(JobRun{
+				JobID:  "update.full",
+				Status: "completed",
+				Error:  "partial failure: 2 packages skipped",
+			})
+			return
+		}
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer api.Close()
+
+	h := newTestHandler(t, api.URL, "")
+	req := httptest.NewRequest(http.MethodGet, "/progress?job=update.full&return=/update", nil)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	redirect := w.Header().Get("HX-Redirect")
+	if redirect != "/update" {
+		t.Fatalf("expected HX-Redirect /update, got %q", redirect)
+	}
+	if body := w.Body.String(); body != "" {
+		t.Fatalf("expected empty body for redirect, got %q", body)
 	}
 }
 
@@ -1529,9 +1581,10 @@ func TestProgress_DefaultReturnURL(t *testing.T) {
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, req)
 
-	body := w.Body.String()
-	if !strings.Contains(body, "/network") {
-		t.Fatal("should derive return URL from plugin name")
+	// Completed → HX-Redirect with derived return URL.
+	redirect := w.Header().Get("HX-Redirect")
+	if redirect != "/network" {
+		t.Fatalf("expected HX-Redirect /network, got %q", redirect)
 	}
 }
 
@@ -1549,9 +1602,10 @@ func TestProgress_CustomReturnURL(t *testing.T) {
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, req)
 
-	body := w.Body.String()
-	if !strings.Contains(body, "/update") {
-		t.Fatal("should use custom return URL")
+	// Completed → HX-Redirect with explicit return URL.
+	redirect := w.Header().Get("HX-Redirect")
+	if redirect != "/update" {
+		t.Fatalf("expected HX-Redirect /update, got %q", redirect)
 	}
 }
 
@@ -1811,10 +1865,12 @@ func TestProgress_UnknownStatus(t *testing.T) {
 }
 
 func TestProgress_ReturnURL_OpenRedirect(t *testing.T) {
+	// Use "running" status so the template renders a body with hx-get;
+	// completed returns HX-Redirect with no body.
 	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		json.NewEncoder(w).Encode(JobRun{
 			JobID:  "update.full",
-			Status: "completed",
+			Status: "running",
 		})
 	}))
 	defer api.Close()
@@ -1839,9 +1895,43 @@ func TestProgress_ReturnURL_OpenRedirect(t *testing.T) {
 		if strings.Contains(body, u) {
 			t.Errorf("return=%q should be rejected, but found in response", u)
 		}
-		// Should fall back to "/"
-		if !strings.Contains(body, `hx-get="/"`) {
-			t.Errorf("return=%q should fall back to '/', body=%s", u, body)
+		// The polling URL must carry return=%2F (i.e. "/") to prove the
+		// handler sanitised the dangerous value back to the root.
+		if !strings.Contains(body, `return=%2F"`) {
+			t.Errorf("return=%q should fall back to '/' in polling URL, body=%s", u, body)
+		}
+	}
+}
+
+func TestProgress_ReturnURL_OpenRedirect_Completed(t *testing.T) {
+	// Completed jobs get HX-Redirect; verify dangerous URLs are sanitised.
+	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		json.NewEncoder(w).Encode(JobRun{
+			JobID:  "update.full",
+			Status: "completed",
+		})
+	}))
+	defer api.Close()
+
+	h := newTestHandler(t, api.URL, "")
+
+	dangerous := []string{
+		"https://evil.com",
+		"//evil.com",
+		`/\evil.com`,
+		"javascript:alert(1)",
+		"data:text/html,<h1>pwned</h1>",
+		"/update\r\nX-Injected: true",
+		"/update\x00evil",
+	}
+	for _, u := range dangerous {
+		req := httptest.NewRequest(http.MethodGet, "/progress?job=update.full&return="+url.QueryEscape(u), nil)
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, req)
+
+		redirect := w.Header().Get("HX-Redirect")
+		if redirect != "/" {
+			t.Errorf("return=%q should fall back to '/', got HX-Redirect=%q", u, redirect)
 		}
 	}
 }
