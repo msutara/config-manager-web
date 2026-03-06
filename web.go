@@ -261,10 +261,10 @@ func (h *Handler) fetchPlugins(r *http.Request) ([]PluginInfo, error) {
 	return plugins, nil
 }
 
-// withPlugins adds the Plugins list to a template data map with fallback to
-// stale cached data when the API is unreachable. If both the API and cache
-// (including expired entries) are empty, PluginsUnavailable is set so the
-// template can show a message.
+// withPlugins adds the Plugins list and sidebar NodeInfo to a template data
+// map with fallback to stale cached data when the API is unreachable. If
+// both the API and cache (including expired entries) are empty,
+// PluginsUnavailable is set so the template can show a message.
 func (h *Handler) withPlugins(r *http.Request, data map[string]any) map[string]any {
 	plugins, err := h.fetchPlugins(r)
 	if err != nil {
@@ -276,6 +276,19 @@ func (h *Handler) withPlugins(r *http.Request, data map[string]any) map[string]a
 	data["Plugins"] = plugins
 	if err != nil && len(plugins) == 0 {
 		data["PluginsUnavailable"] = true
+	}
+
+	// Sidebar: inject node info for hostname + uptime display.
+	// Best-effort — skip when the plugin fetch already failed (avoids a
+	// second timeout that would double page-load latency when API is down).
+	if err == nil {
+		if _, ok := data["SidebarNode"]; !ok {
+			var node NodeInfo
+			if nodeErr := h.client.get(r.Context(), "/api/v1/node", &node); nodeErr == nil {
+				data["SidebarNode"] = node
+				data["SidebarConnected"] = true
+			}
+		}
 	}
 	return data
 }

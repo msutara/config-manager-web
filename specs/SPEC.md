@@ -76,17 +76,20 @@ Data source: `GET /api/v1/node`
 
 Displays:
 
-- Current status (running/idle)
-- Pending update count
-- Security update count
-- Last run time and result
+- Pending update count and security update count (summary cards)
+- **Package list** — table of individual pending packages with name, current
+  version, new version, and a security badge
+- **Last run** — type, status, timestamp, duration, and package count
+- **Log viewer** — collapsible `<details>` section showing raw log output
 - Configuration (security source availability, auto-update setting, schedule)
 
 Actions:
 
-- **Run Full Update** — `POST /api/v1/plugins/update/run`
-- **Run Security Update** — `POST /api/v1/plugins/update/run?type=security`
-  (only shown when security source is available)
+- **Run Full Update** — `POST /api/v1/plugins/update/run` with `{"type":"full"}`
+  JSON body, confirmation dialog
+- **Run Security Update** — `POST /api/v1/plugins/update/run` with
+  `{"type":"security"}` JSON body, confirmation dialog (only shown when
+  security source is available)
 
 Settings (editable form with htmx):
 
@@ -137,11 +140,28 @@ Data sources:
 - Uptime refresh: `hx-get="/" hx-trigger="every 30s" hx-select=".uptime-value"`
 - Update trigger: `hx-post="/update/run" hx-target="#update-result"`
 - Loading indicator: `hx-indicator="#update-spinner"`
+- Confirmation dialogs: `hx-confirm="..."` on destructive action buttons
 
 ### Response Fragments
 
 POST handlers return HTML fragments (not full pages) for htmx to swap
 into the target element. This avoids full page reloads.
+
+## Sidebar
+
+The sidebar appears on every page and contains:
+
+- **Navigation** — links to Dashboard, Update, Network, plus dynamically
+  discovered plugins from the core API
+- **Connection indicator** — green dot when core API is reachable, hidden
+  when unreachable
+- **Hostname and uptime** — fetched from `/api/v1/node` via `withPlugins()`
+  helper, gracefully hidden when API is down
+- **Logout button** — ends the authenticated session
+
+The sidebar uses a plugin cache with 30-second TTL and falls back to stale
+data when the API is unreachable (thundering-herd protected with double-check
+locking).
 
 ## Styling
 

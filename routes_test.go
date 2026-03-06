@@ -78,7 +78,9 @@ func mockAPI(t *testing.T) *httptest.Server {
 			Type:      "full",
 			Status:    "completed",
 			StartedAt: "2026-02-27T10:00:00Z",
+			Duration:  "2m 15s",
 			Packages:  3,
+			Log:       "Updating openssl 3.0.1 -> 3.0.2\nUpdating curl 7.88.0 -> 7.88.1\nDone.",
 		})
 	})
 
@@ -636,6 +638,9 @@ func TestGenericPlugin_RendersForKnownPlugin(t *testing.T) {
 	if !strings.Contains(body, "/firewall/actions/reload") {
 		t.Error("action button should use proxied web path")
 	}
+	if !strings.Contains(body, `hx-confirm="Execute`) {
+		t.Error("generic POST actions should have hx-confirm for safety")
+	}
 	if !strings.Contains(body, "allow 22/tcp") {
 		t.Error("generic page should render fetched endpoint data")
 	}
@@ -983,7 +988,20 @@ func TestUpdatePage_WithMockAPI(t *testing.T) {
 		t.Fatalf("expected 200, got %d", w.Code)
 	}
 	body := w.Body.String()
-	for _, want := range []string{"5", "2", "Security Update", "full", "completed"} {
+	for _, want := range []string{
+		"5", "2", "Security Update", "full", "completed",
+		// Package list table (parity with TUI).
+		"openssl", "3.0.1", "3.0.2",
+		"curl", "7.88.0", "7.88.1",
+		// Last run details.
+		"Duration: 2m 15s", "Packages: 3",
+		// Log viewer — presence and content.
+		"View log output",
+		"Updating openssl",
+		// Both confirmation dialogs.
+		"Run a full system update?",
+		"Run security-only update?",
+	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("update page should contain %q", want)
 		}
@@ -1001,6 +1019,12 @@ func TestUpdatePage_SecurityHiddenWhenUnavailable(t *testing.T) {
 			json.NewEncoder(w).Encode(RunStatus{})
 		case "/api/v1/plugins/update/config":
 			json.NewEncoder(w).Encode(UpdateConfig{SecurityAvailable: boolPtr(false)})
+		case "/api/v1/plugins":
+			json.NewEncoder(w).Encode([]map[string]any{})
+		case "/api/v1/node":
+			json.NewEncoder(w).Encode(NodeInfo{Hostname: "test"})
+		default:
+			http.NotFound(w, r)
 		}
 	}))
 	defer api.Close()
@@ -1021,6 +1045,48 @@ func TestUpdatePage_SecurityHiddenWhenUnavailable(t *testing.T) {
 	}
 	if strings.Contains(w.Body.String(), "Security Source") {
 		t.Fatal("security_source form field should be hidden when unavailable")
+	}
+	// Empty-state: log viewer should be absent when RunStatus has no log.
+	if strings.Contains(w.Body.String(), "View log output") {
+		t.Fatal("log viewer should be absent when RunStatus.Log is empty")
+	}
+}
+
+func TestUpdatePage_EmptyPendingHidesTable(t *testing.T) {
+	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/v1/plugins/update/status":
+			json.NewEncoder(w).Encode([]PendingUpdate{})
+		case "/api/v1/plugins/update/logs":
+			json.NewEncoder(w).Encode(RunStatus{Type: "full", Status: "completed"})
+		case "/api/v1/plugins/update/config":
+			json.NewEncoder(w).Encode(UpdateConfig{SecurityAvailable: boolPtr(true)})
+		case "/api/v1/plugins":
+			json.NewEncoder(w).Encode([]map[string]any{})
+		case "/api/v1/node":
+			json.NewEncoder(w).Encode(NodeInfo{Hostname: "test"})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer api.Close()
+
+	h := newTestHandler(t, api.URL, "")
+	req := httptest.NewRequest(http.MethodGet, "/update", nil)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", w.Code)
+	}
+	body := w.Body.String()
+	// Package table header should be absent when no pending updates.
+	if strings.Contains(body, "<th>Package</th>") {
+		t.Error("package table should not render when pending list is empty")
+	}
+	// Log viewer should be absent when RunStatus.Log is empty.
+	if strings.Contains(body, "View log output") {
+		t.Error("log viewer should not render when log is empty")
 	}
 }
 

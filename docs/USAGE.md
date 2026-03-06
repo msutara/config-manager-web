@@ -27,9 +27,14 @@ View pending updates, trigger operations, and edit settings:
 
 - **Pending Updates** — number of packages with available updates
 - **Security Updates** — security-specific updates (when security source available)
-- **Run Full Update** — triggers `apt-get upgrade` for all packages
-- **Run Security Update** — triggers security-only update (hidden on systems
-  without a separate security repository, such as Raspberry Pi OS)
+- **Package List** — table of individual pending packages showing name, current
+  version, new version, and a security badge for security-related updates
+- **Last Run** — type, status, timestamp, duration, and package count
+- **Log Viewer** — collapsible section showing raw log output from the last run
+- **Run Full Update** — triggers `apt-get upgrade` for all packages (confirmation
+  dialog prevents accidental clicks)
+- **Run Security Update** — triggers security-only update with confirmation
+  (hidden on systems without a separate security repository)
 
 ##### Edit Settings
 
@@ -59,11 +64,25 @@ Any plugin registered with CM Core whose name matches `[a-z][a-z0-9-]*`
 is automatically accessible via `/{plugin-name}` in the web UI, with actions
 rendered dynamically from plugin metadata, **unless** that path conflicts with
 an existing built-in route. Built-in routes (such as `/login`, `/update`,
-`/network`) always take precedence. Plugin actions that require POSTs are
+`/network`) always take precedence. Plugin POST actions show a confirmation
+dialog before executing. Plugin actions that require POSTs are
 exposed under `/{plugin-name}/actions/<action-path>` and invoked by the UI.
 The Update and Network pages above are hardcoded examples; additional plugins
 that follow the naming rule and do not conflict with built-in routes appear
 without code changes.
+
+## Sidebar
+
+The sidebar is present on every page and shows:
+
+- **Navigation links** — Dashboard, Update, Network, plus any registered plugins
+- **Connection indicator** — green dot when the core API is reachable
+- **Hostname** — device name fetched from the core API
+- **Uptime** — human-readable uptime (e.g. "up 2d 5h 30m")
+- **Logout** — button to end the authenticated session
+
+When the core API is unreachable, the sidebar degrades gracefully: navigation
+links use a stale cache and the host/uptime section is hidden.
 
 ## Browser Support
 

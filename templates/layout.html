@@ -26,6 +26,13 @@
             {{ end }}
         </ul>
         <div class="sidebar-footer">
+            {{ if .SidebarNode }}
+            <div class="sidebar-info" role="status" aria-label="{{ if .SidebarConnected }}Connected{{ else }}Disconnected{{ end }}: {{ .SidebarNode.Hostname }}">
+                <span class="conn-dot {{ if .SidebarConnected }}conn-ok{{ else }}conn-off{{ end }}" aria-hidden="true">●</span>
+                <span class="sidebar-host">{{ .SidebarNode.Hostname }}</span>
+                <span class="sidebar-uptime">{{ if gt .SidebarNode.UptimeSeconds 0 }}up {{ end }}{{ formatUptime .SidebarNode.UptimeSeconds }}</span>
+            </div>
+            {{ end }}
             <form method="post" action="/auth/logout">
                 <button type="submit" class="btn btn-sm">Logout</button>
             </form>
