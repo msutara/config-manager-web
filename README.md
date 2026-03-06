@@ -7,12 +7,14 @@ headless Debian-based nodes (Raspbian Bookworm ARM, Debian Bullseye slim).
 ## Features
 
 - Dashboard with hostname, OS, architecture, and live uptime
-- Update manager — pending counts, run full or security-only updates
+- Update manager — pending counts, package list, log viewer, run full or
+  security-only updates with confirmation dialogs
 - Network info — interfaces, connectivity status, DNS configuration
 - Cookie-based authentication using the same Bearer token as the API
 - Responsive dark theme — works on phones, tablets, and desktops
 - Server-rendered with htmx — no JavaScript build step required
 - Dynamic plugin sidebar — auto-discovers plugins from the core API registry
+- Sidebar system info — hostname, uptime, and API connection indicator
 
 ## Architecture
 

@@ -18,6 +18,30 @@
         <p class="value">{{ .SecurityCount }}</p>
     </div>
 </div>
+
+{{ if .Pending }}
+<h3>Packages</h3>
+<table class="data-table">
+    <thead>
+        <tr>
+            <th>Package</th>
+            <th>Current</th>
+            <th>New</th>
+            <th>Security</th>
+        </tr>
+    </thead>
+    <tbody>
+        {{ range .Pending }}
+        <tr>
+            <td>{{ .Package }}</td>
+            <td>{{ .CurrentVersion }}</td>
+            <td>{{ .NewVersion }}</td>
+            <td>{{ if .Security }}<span class="badge badge-security" aria-label="Security update" title="Security update">!</span>{{ end }}</td>
+        </tr>
+        {{ end }}
+    </tbody>
+</table>
+{{ end }}
 {{ end }}
 
 {{ if not .LogsErr }}
@@ -27,8 +51,16 @@
         <h3>Last Run</h3>
         <p class="value">{{ .RunStatus.Type }} — {{ .RunStatus.Status }}</p>
         {{ if .RunStatus.StartedAt }}<p class="detail">{{ .RunStatus.StartedAt }}</p>{{ end }}
+        {{ if .RunStatus.Duration }}<p class="detail">Duration: {{ .RunStatus.Duration }}</p>{{ end }}
+        {{ if .RunStatus.Status }}<p class="detail">Packages: {{ .RunStatus.Packages }}</p>{{ end }}
     </div>
 </div>
+{{ if .RunStatus.Log }}
+<details class="log-viewer">
+    <summary>View log output</summary>
+    <pre class="log-pre">{{ .RunStatus.Log }}</pre>
+</details>
+{{ end }}
 {{ end }}
 {{ end }}
 
@@ -42,7 +74,8 @@
             hx-vals='{"type":"full"}'
             hx-target="#update-result"
             hx-swap="innerHTML"
-            hx-indicator="#update-spinner">
+            hx-indicator="#update-spinner"
+            hx-confirm="Run a full system update? This will update all packages.">
         Run Full Update
     </button>
 
@@ -52,7 +85,8 @@
             hx-vals='{"type":"security"}'
             hx-target="#update-result"
             hx-swap="innerHTML"
-            hx-indicator="#update-spinner">
+            hx-indicator="#update-spinner"
+            hx-confirm="Run security-only update? This will install security patches.">
         Run Security Update
     </button>
     {{ end }}

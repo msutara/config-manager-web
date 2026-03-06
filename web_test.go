@@ -351,6 +351,47 @@ func TestSidebarUsesStaleCache_WhenAPIDown(t *testing.T) {
 	}
 }
 
+// ---------- Sidebar node info tests ----------
+
+func TestSidebar_ShowsHostnameAndUptime(t *testing.T) {
+	api := mockAPI(t)
+	defer api.Close()
+
+	h := newTestHandler(t, api.URL, "")
+	req := httptest.NewRequest(http.MethodGet, "/update", nil)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	body := w.Body.String()
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d; body: %s", w.Code, body)
+	}
+	for _, want := range []string{"test-node", "conn-dot", "conn-ok", "up 2d"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("sidebar should contain %q", want)
+		}
+	}
+}
+
+func TestSidebar_NoCrashWhenAPIDown(t *testing.T) {
+	// Point at a closed server — API unreachable.
+	srv := httptest.NewServer(http.NotFoundHandler())
+	srv.Close()
+
+	h := newTestHandler(t, srv.URL, "")
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200 even when API is down, got %d", w.Code)
+	}
+	// Sidebar info section should be absent (graceful degradation).
+	if strings.Contains(w.Body.String(), "sidebar-host") {
+		t.Error("sidebar should not show host info when API is unreachable")
+	}
+}
+
 // ---------- Thundering herd prevention tests ----------
 
 func TestFetchPlugins_DoubleCheck(t *testing.T) {

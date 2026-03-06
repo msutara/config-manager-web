@@ -22,7 +22,8 @@
     <button class="btn btn-primary"
             hx-post="/{{ $.PluginName }}/actions{{ .Path }}"
             hx-target="#action-result"
-            hx-swap="innerHTML">
+            hx-swap="innerHTML"
+            hx-confirm="Execute '{{ .Description }}'?">
         {{ .Description }}
     </button>
     {{ end }}

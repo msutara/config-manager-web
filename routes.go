@@ -12,6 +12,7 @@ import (
 	"strings"
 	"sync"
 	"unicode"
+	"unicode/utf8"
 
 	"github.com/go-chi/chi/v5"
 )
@@ -284,6 +285,11 @@ func (h *Handler) handleDashboard(w http.ResponseWriter, r *http.Request) {
 		"Node":    node,
 		"NodeErr": nodeErr,
 	}
+	// Reuse dashboard NodeInfo for sidebar to avoid a second /api/v1/node call.
+	if nodeErr == nil {
+		data["SidebarNode"] = node
+		data["SidebarConnected"] = true
+	}
 	h.render(w, "dashboard.html", h.withPlugins(r, data))
 }
 
@@ -325,6 +331,17 @@ func (h *Handler) handleUpdate(w http.ResponseWriter, r *http.Request) {
 	}
 	if configErr != nil {
 		slog.Error("web: failed to fetch update config", "error", configErr)
+	}
+
+	// Cap log size to prevent excessive memory use on ARM devices.
+	// Truncate on a UTF-8 rune boundary to avoid splitting multi-byte characters.
+	const maxLogBytes = 256 << 10 // 256 KB
+	if len(runStatus.Log) > maxLogBytes {
+		cut := maxLogBytes
+		for cut > 0 && !utf8.RuneStart(runStatus.Log[cut]) {
+			cut--
+		}
+		runStatus.Log = runStatus.Log[:cut] + "\n…(truncated)"
 	}
 
 	// Compute counts from the pending list.

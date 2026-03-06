@@ -88,6 +88,27 @@ body {
     border-top: 1px solid var(--border);
 }
 
+.sidebar-info {
+    margin-bottom: 0.75rem;
+    font-size: 0.8rem;
+    line-height: 1.6;
+}
+
+.conn-dot { font-size: 0.7rem; margin-right: 0.25rem; }
+.conn-ok { color: var(--success); }
+.conn-off { color: var(--text-muted); }
+
+.sidebar-host {
+    color: var(--text);
+    font-weight: 600;
+}
+
+.sidebar-uptime {
+    display: block;
+    color: var(--text-muted);
+    padding-left: 1.1rem;
+}
+
 /* Main Content */
 
 .content {
@@ -192,6 +213,38 @@ h3 {
 .badge-routable, .badge-up { background: rgba(158, 206, 106, 0.2); color: var(--success); }
 .badge-carrier { background: rgba(224, 175, 104, 0.2); color: var(--warning); }
 .badge-off, .badge-down { background: rgba(247, 118, 142, 0.2); color: var(--error); }
+.badge-security { background: rgba(247, 118, 142, 0.2); color: var(--error); }
+
+/* Log viewer */
+
+.log-viewer {
+    margin: 1rem 0;
+}
+
+.log-viewer summary {
+    cursor: pointer;
+    color: var(--accent);
+    font-size: 0.9rem;
+    padding: 0.5rem 0;
+}
+
+.log-viewer summary:hover {
+    color: var(--accent-hover);
+}
+
+.log-pre {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 1rem;
+    font-size: 0.8rem;
+    overflow-x: auto;
+    max-height: 400px;
+    overflow-y: auto;
+    white-space: pre-wrap;
+    word-break: break-all;
+    margin-top: 0.5rem;
+}
 
 /* Buttons */
 
