@@ -9,7 +9,7 @@
     </span>
 </div>
 {{ else if eq .Status "completed" }}
-<div class="alert alert-success" hx-get="{{ .ReturnURL }}" hx-trigger="load delay:1s" hx-target="body" hx-push-url="true" hx-select="body">
+<div class="alert alert-success" hx-get="{{ .ReturnURL }}" hx-trigger="load delay:1s" hx-target="body" hx-push-url="true" hx-select="body" hx-swap="outerHTML">
     {{ .JobID }} completed{{ if .Duration }} in {{ .Duration }}{{ end }}.
 </div>
 {{ else if eq .Status "failed" }}
