@@ -1612,7 +1612,7 @@ func TestProgress_APIError_NotRetryable(t *testing.T) {
 }
 
 func TestProgress_ErrorRetryCapExceeded(t *testing.T) {
-	// API returns 500 (retryable) but retry count exceeds cap.
+	// API returns 500 (retryable) but retry count is at the cap (>= maxErrorRetries).
 	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		http.Error(w, "internal error", http.StatusInternalServerError)
 	}))
@@ -1728,7 +1728,7 @@ func TestProgress_ErrorRetryNegativeClamped(t *testing.T) {
 }
 
 func TestProgress_ErrorRetryNonNumericClamped(t *testing.T) {
-	// Non-numeric retry value should be treated as 0 (strconv.Atoi returns 0).
+	// Non-numeric retry value causes a parse error and is treated as retry=0 by the handler.
 	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		http.Error(w, "internal error", http.StatusInternalServerError)
 	}))
