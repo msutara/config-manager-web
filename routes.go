@@ -318,8 +318,8 @@ func (h *Handler) handleGenericAction(w http.ResponseWriter, r *http.Request) {
 	name := chi.URLParam(r, "plugin")
 	action := chi.URLParam(r, "*") // wildcard captures the full remainder
 
-	found, _, fetchErr := h.lookupPlugin(r, name)
-	if fetchErr != nil {
+	found, plugins, fetchErr := h.lookupPlugin(r, name)
+	if found == nil && len(plugins) == 0 && fetchErr != nil {
 		slog.Error("web: plugin registry unavailable", "error", fetchErr)
 		http.Error(w, "Plugin registry unavailable", http.StatusBadGateway)
 		return
