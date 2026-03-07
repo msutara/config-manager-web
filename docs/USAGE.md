@@ -102,6 +102,16 @@ The sidebar is present on every page and shows:
 When the core API is unreachable, the sidebar degrades gracefully: navigation
 links use a stale cache and the host/uptime section is hidden.
 
+## Performance
+
+Pages use a two-phase loading pattern for fast perceived performance:
+
+1. The page renders instantly with skeleton placeholders (pulsing grey bars).
+2. htmx lazy-loads the actual data from `/fragments/*` endpoints in the background.
+
+If a fragment request fails or times out (15 s), a retry button appears in place
+of the skeleton. JavaScript is required; a `<noscript>` banner warns when disabled.
+
 ## Browser Support
 
 The web UI works in any modern browser (Chrome, Firefox, Safari, Edge).
