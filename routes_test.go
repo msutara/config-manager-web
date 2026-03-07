@@ -3639,3 +3639,84 @@ func TestPluginFragment_UnknownPlugin404(t *testing.T) {
 		t.Fatalf("expected 404 for unknown plugin fragment, got %d", w.Code)
 	}
 }
+
+// TestPluginPage_CacheFallbackOnAPIError verifies that plugin page requests
+// use cached plugins when the API is down, instead of returning 502.
+func TestPluginPage_CacheFallbackOnAPIError(t *testing.T) {
+	calls := 0
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/v1/plugins", func(w http.ResponseWriter, _ *http.Request) {
+		calls++
+		if calls == 1 {
+			json.NewEncoder(w).Encode([]PluginInfo{
+				{Name: "firewall", Version: "1.0.0", RoutePrefix: "/api/v1/plugins/firewall"},
+			})
+			return
+		}
+		http.Error(w, "boom", http.StatusInternalServerError)
+	})
+	mux.HandleFunc("/api/v1/node", func(w http.ResponseWriter, _ *http.Request) {
+		json.NewEncoder(w).Encode(NodeInfo{Hostname: "test"})
+	})
+
+	api := httptest.NewServer(mux)
+	defer api.Close()
+
+	h := newTestHandler(t, api.URL, "")
+
+	// First request: populates plugin cache.
+	req := httptest.NewRequest(http.MethodGet, "/firewall", nil)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("first request: expected 200, got %d", w.Code)
+	}
+
+	// Expire cache so fetchPlugins actually calls the API again.
+	h.cache.mu.Lock()
+	h.cache.fetchedAt = h.cache.fetchedAt.Add(-2 * h.cache.ttl)
+	h.cache.mu.Unlock()
+
+	// Second request: API returns 500, should fall back to cached plugin.
+	req = httptest.NewRequest(http.MethodGet, "/firewall", nil)
+	w = httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("cache fallback: expected 200, got %d (body: %s)", w.Code, w.Body.String())
+	}
+}
+
+// TestPluginPage_NoDuplicateFetchPlugins verifies that handleGenericPlugin
+// pre-populates the plugin list so withPlugins does not call fetchPlugins again.
+func TestPluginPage_NoDuplicateFetchPlugins(t *testing.T) {
+	fetchCount := 0
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/v1/plugins", func(w http.ResponseWriter, _ *http.Request) {
+		fetchCount++
+		json.NewEncoder(w).Encode([]PluginInfo{
+			{Name: "firewall", Version: "1.0.0", RoutePrefix: "/api/v1/plugins/firewall"},
+		})
+	})
+	mux.HandleFunc("/api/v1/node", func(w http.ResponseWriter, _ *http.Request) {
+		json.NewEncoder(w).Encode(NodeInfo{Hostname: "test"})
+	})
+
+	api := httptest.NewServer(mux)
+	defer api.Close()
+
+	h := newTestHandler(t, api.URL, "")
+
+	// Ensure cache is empty so every fetchPlugins call hits the API.
+	req := httptest.NewRequest(http.MethodGet, "/firewall", nil)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", w.Code)
+	}
+	// lookupPlugin calls fetchPlugins once; withPlugins should reuse pre-populated
+	// Plugins and NOT call fetchPlugins again, so total should be 1.
+	if fetchCount != 1 {
+		t.Errorf("expected 1 fetchPlugins call, got %d (double-fetch not eliminated)", fetchCount)
+	}
+}

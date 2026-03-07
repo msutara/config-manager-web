@@ -178,7 +178,13 @@ func validateRoutePrefix(prefix string) error {
 func (h *Handler) lookupPlugin(r *http.Request, name string) (*PluginInfo, []PluginInfo, error) {
 	plugins, err := h.fetchPlugins(r)
 	if err != nil {
-		return nil, nil, err
+		// Fall back to stale cache so the page/fragment can still render
+		// with the last-known plugin list rather than returning 502.
+		if cached, ok := h.cache.getAny(); ok {
+			plugins = cached
+		} else {
+			return nil, nil, err
+		}
 	}
 	for i := range plugins {
 		if plugins[i].Name == name {
@@ -193,7 +199,7 @@ func (h *Handler) lookupPlugin(r *http.Request, name string) (*PluginInfo, []Plu
 func (h *Handler) handleGenericPlugin(w http.ResponseWriter, r *http.Request) {
 	name := chi.URLParam(r, "plugin")
 
-	found, _, err := h.lookupPlugin(r, name)
+	found, plugins, err := h.lookupPlugin(r, name)
 	if err != nil {
 		slog.Error("web: plugin registry unavailable", "error", err)
 		http.Error(w, "Plugin registry unavailable", http.StatusBadGateway)
@@ -208,6 +214,7 @@ func (h *Handler) handleGenericPlugin(w http.ResponseWriter, r *http.Request) {
 		"Page":        name,
 		"PluginName":  name,
 		"PluginTitle": titleCase(found.Name),
+		"Plugins":     plugins, // pre-populated; withPlugins will reuse
 	}
 	if t := parseFlashToast(r); t != nil {
 		data["Toast"] = t

@@ -310,21 +310,35 @@ func (h *Handler) fetchPlugins(r *http.Request) ([]PluginInfo, error) {
 // both the API and cache (including expired entries) are empty,
 // PluginsUnavailable is set so the template can show a message.
 func (h *Handler) withPlugins(r *http.Request, data map[string]any) map[string]any {
-	plugins, err := h.fetchPlugins(r)
-	if err != nil {
-		slog.Debug("web: sidebar plugin fetch failed, trying stale cache", "error", err)
-		if cached, ok := h.cache.getAny(); ok {
-			plugins = cached
+	var plugins []PluginInfo
+	var err error
+
+	// If the caller already fetched plugins (e.g. via lookupPlugin), reuse
+	// them to avoid a duplicate fetchPlugins call.
+	if existing, ok := data["Plugins"].([]PluginInfo); ok && len(existing) > 0 {
+		plugins = existing
+	} else {
+		plugins, err = h.fetchPlugins(r)
+		if err != nil {
+			slog.Debug("web: sidebar plugin fetch failed, trying stale cache", "error", err)
+			if cached, ok := h.cache.getAny(); ok {
+				plugins = cached
+			}
 		}
+		data["Plugins"] = plugins
 	}
-	data["Plugins"] = plugins
 	if err != nil && len(plugins) == 0 {
 		data["PluginsUnavailable"] = true
 	}
 
 	// Sidebar: inject node info for hostname + uptime display.
-	// Uses a short TTL cache to avoid duplicate API calls when the
-	// dashboard fragment also fetches node info.
+	// This block is guarded by `if err == nil` so that when the plugin
+	// registry fetch is timing out or failing, we do not compound the
+	// problem with an additional node-info API call from the sidebar.
+	// When plugins were pre-populated by the caller, err is nil and we
+	// attempt the node fetch normally. Uses a short TTL cache to avoid
+	// duplicate /api/v1/node requests when the dashboard fragment also
+	// fetches node info.
 	if err == nil {
 		if _, ok := data["SidebarNode"]; !ok {
 			if node, ok := h.nodes.get(); ok {

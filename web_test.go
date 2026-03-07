@@ -196,6 +196,21 @@ func TestRequireSession_BypassedWhenNoAuth(t *testing.T) {
 	}
 }
 
+func TestRequireSession_HXRedirectForHtmxRequests(t *testing.T) {
+	h := newTestHandler(t, "http://localhost:9999", "secret")
+	req := httptest.NewRequest(http.MethodGet, "/fragments/dashboard", nil)
+	req.Header.Set("HX-Request", "true")
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	if w.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401 for htmx request without session, got %d", w.Code)
+	}
+	if loc := w.Header().Get("HX-Redirect"); loc != "/login" {
+		t.Fatalf("expected HX-Redirect: /login, got %q", loc)
+	}
+}
+
 // ---------- Static files ----------
 
 func TestStaticFiles_NoAuthRequired(t *testing.T) {
