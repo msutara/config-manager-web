@@ -3720,3 +3720,108 @@ func TestPluginPage_NoDuplicateFetchPlugins(t *testing.T) {
 		t.Errorf("expected 1 fetchPlugins call, got %d (double-fetch not eliminated)", fetchCount)
 	}
 }
+
+// TestPluginPage_CacheFallback_UnknownPlugin404 verifies that when the API is
+// down and the requested plugin is NOT in the stale cache, we get 404 (not 502).
+func TestPluginPage_CacheFallback_UnknownPlugin404(t *testing.T) {
+	calls := 0
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/v1/plugins", func(w http.ResponseWriter, _ *http.Request) {
+		calls++
+		if calls == 1 {
+			json.NewEncoder(w).Encode([]PluginInfo{
+				{Name: "firewall", Version: "1.0.0", RoutePrefix: "/api/v1/plugins/firewall"},
+			})
+			return
+		}
+		http.Error(w, "boom", http.StatusInternalServerError)
+	})
+	mux.HandleFunc("/api/v1/node", func(w http.ResponseWriter, _ *http.Request) {
+		json.NewEncoder(w).Encode(NodeInfo{Hostname: "test"})
+	})
+
+	api := httptest.NewServer(mux)
+	defer api.Close()
+
+	h := newTestHandler(t, api.URL, "")
+
+	// Prime cache with "firewall".
+	req := httptest.NewRequest(http.MethodGet, "/firewall", nil)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("prime: expected 200, got %d", w.Code)
+	}
+
+	// Expire plugin cache.
+	h.cache.mu.Lock()
+	h.cache.fetchedAt = h.cache.fetchedAt.Add(-2 * h.cache.ttl)
+	h.cache.mu.Unlock()
+
+	// Request "backup" (not in stale cache) while API is down → should 404.
+	req = httptest.NewRequest(http.MethodGet, "/backup", nil)
+	w = httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("expected 404 for unknown plugin with stale cache, got %d", w.Code)
+	}
+}
+
+// TestPluginPage_CacheFallback_SkipsNodeFetch verifies that when the plugin
+// registry fetch fails and cache fallback is used, the sidebar node-info
+// fetch is skipped (avoids compounding a down API with more failing calls).
+func TestPluginPage_CacheFallback_SkipsNodeFetch(t *testing.T) {
+	pluginCalls := 0
+	nodeCalls := 0
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/v1/plugins", func(w http.ResponseWriter, _ *http.Request) {
+		pluginCalls++
+		if pluginCalls == 1 {
+			json.NewEncoder(w).Encode([]PluginInfo{
+				{Name: "firewall", Version: "1.0.0", RoutePrefix: "/api/v1/plugins/firewall"},
+			})
+			return
+		}
+		http.Error(w, "boom", http.StatusInternalServerError)
+	})
+	mux.HandleFunc("/api/v1/node", func(w http.ResponseWriter, _ *http.Request) {
+		nodeCalls++
+		json.NewEncoder(w).Encode(NodeInfo{Hostname: "test"})
+	})
+
+	api := httptest.NewServer(mux)
+	defer api.Close()
+
+	h := newTestHandler(t, api.URL, "")
+
+	// Prime: healthy request populates both plugin and node caches.
+	req := httptest.NewRequest(http.MethodGet, "/firewall", nil)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("prime: expected 200, got %d", w.Code)
+	}
+	primeNodeCalls := nodeCalls
+
+	// Expire both caches so next request must re-fetch.
+	h.cache.mu.Lock()
+	h.cache.fetchedAt = h.cache.fetchedAt.Add(-2 * h.cache.ttl)
+	h.cache.mu.Unlock()
+	h.nodes.mu.Lock()
+	h.nodes.fetchedAt = h.nodes.fetchedAt.Add(-2 * h.nodes.ttl)
+	h.nodes.mu.Unlock()
+
+	// Second request: plugin API down, should use cache fallback and
+	// NOT attempt the node-info fetch.
+	req = httptest.NewRequest(http.MethodGet, "/firewall", nil)
+	w = httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("cache fallback: expected 200, got %d", w.Code)
+	}
+
+	if nodeCalls != primeNodeCalls {
+		t.Errorf("expected no additional /api/v1/node calls during cache fallback, got %d extra",
+			nodeCalls-primeNodeCalls)
+	}
+}

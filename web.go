@@ -331,15 +331,17 @@ func (h *Handler) withPlugins(r *http.Request, data map[string]any) map[string]a
 		data["PluginsUnavailable"] = true
 	}
 
+	// Check if the caller flagged a failed plugin fetch (stale cache data).
+	// This prevents compounding a down API with additional failing calls.
+	fetchFailed, _ := data["PluginsFetchFailed"].(bool)
+
 	// Sidebar: inject node info for hostname + uptime display.
-	// This block is guarded by `if err == nil` so that when the plugin
-	// registry fetch is timing out or failing, we do not compound the
-	// problem with an additional node-info API call from the sidebar.
-	// When plugins were pre-populated by the caller, err is nil and we
-	// attempt the node fetch normally. Uses a short TTL cache to avoid
-	// duplicate /api/v1/node requests when the dashboard fragment also
-	// fetches node info.
-	if err == nil {
+	// Guarded so that when the plugin registry fetch is timing out or
+	// failing, we do not compound the problem with an additional
+	// node-info API call from the sidebar. When the API is healthy,
+	// uses a short TTL cache to avoid duplicate /api/v1/node requests
+	// when the dashboard fragment also fetches node info.
+	if err == nil && !fetchFailed {
 		if _, ok := data["SidebarNode"]; !ok {
 			if node, ok := h.nodes.get(); ok {
 				data["SidebarNode"] = node

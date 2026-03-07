@@ -180,6 +180,7 @@ func (h *Handler) lookupPlugin(r *http.Request, name string) (*PluginInfo, []Plu
 	if err != nil {
 		// Fall back to stale cache so the page/fragment can still render
 		// with the last-known plugin list rather than returning 502.
+		// The original error is preserved so callers know data is stale.
 		if cached, ok := h.cache.getAny(); ok {
 			plugins = cached
 		} else {
@@ -188,10 +189,10 @@ func (h *Handler) lookupPlugin(r *http.Request, name string) (*PluginInfo, []Plu
 	}
 	for i := range plugins {
 		if plugins[i].Name == name {
-			return &plugins[i], plugins, nil
+			return &plugins[i], plugins, err
 		}
 	}
-	return nil, plugins, nil
+	return nil, plugins, err
 }
 
 // handleGenericPlugin renders a generic page with skeleton placeholders.
@@ -199,9 +200,10 @@ func (h *Handler) lookupPlugin(r *http.Request, name string) (*PluginInfo, []Plu
 func (h *Handler) handleGenericPlugin(w http.ResponseWriter, r *http.Request) {
 	name := chi.URLParam(r, "plugin")
 
-	found, plugins, err := h.lookupPlugin(r, name)
-	if err != nil {
-		slog.Error("web: plugin registry unavailable", "error", err)
+	found, plugins, fetchErr := h.lookupPlugin(r, name)
+	if found == nil && len(plugins) == 0 && fetchErr != nil {
+		// No plugin data available (API down, no cache).
+		slog.Error("web: plugin registry unavailable", "error", fetchErr)
 		http.Error(w, "Plugin registry unavailable", http.StatusBadGateway)
 		return
 	}
@@ -216,6 +218,11 @@ func (h *Handler) handleGenericPlugin(w http.ResponseWriter, r *http.Request) {
 		"PluginTitle": titleCase(found.Name),
 		"Plugins":     plugins, // pre-populated; withPlugins will reuse
 	}
+	if fetchErr != nil {
+		// Signal that plugins came from stale cache so withPlugins
+		// skips the node-info fetch (API is likely down).
+		data["PluginsFetchFailed"] = true
+	}
 	if t := parseFlashToast(r); t != nil {
 		data["Toast"] = t
 	}
@@ -226,9 +233,9 @@ func (h *Handler) handleGenericPlugin(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) handlePluginFragment(w http.ResponseWriter, r *http.Request) {
 	name := chi.URLParam(r, "plugin")
 
-	found, _, err := h.lookupPlugin(r, name)
-	if err != nil {
-		slog.Error("web: plugin registry unavailable", "error", err)
+	found, plugins, fetchErr := h.lookupPlugin(r, name)
+	if found == nil && len(plugins) == 0 && fetchErr != nil {
+		slog.Error("web: plugin registry unavailable", "error", fetchErr)
 		http.Error(w, "Plugin registry unavailable", http.StatusBadGateway)
 		return
 	}
