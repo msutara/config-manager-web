@@ -690,28 +690,13 @@ func TestGenericPlugin_RendersForKnownPlugin(t *testing.T) {
 	}
 	body := w.Body.String()
 	if !strings.Contains(body, "Firewall") {
-		t.Error("generic page should show plugin name")
+		t.Error("generic page should show plugin title")
 	}
-	if !strings.Contains(body, "Firewall management") {
-		t.Error("generic page should show plugin description")
+	if !strings.Contains(body, `hx-get="/fragments/firewall"`) {
+		t.Error("generic page should contain hx-get for lazy loading fragment")
 	}
-	if !strings.Contains(body, "Active firewall rules") {
-		t.Error("generic page should show endpoint description")
-	}
-	if !strings.Contains(body, "Reload firewall rules") {
-		t.Error("generic page should show POST action button")
-	}
-	if strings.Contains(body, "/api/v1/plugins/firewall/reload") {
-		t.Error("action button should NOT use direct API path")
-	}
-	if !strings.Contains(body, "/firewall/actions/reload") {
-		t.Error("action button should use proxied web path")
-	}
-	if !strings.Contains(body, `hx-confirm="Execute`) {
-		t.Error("generic POST actions should have hx-confirm for safety")
-	}
-	if !strings.Contains(body, "allow 22/tcp") {
-		t.Error("generic page should render fetched endpoint data")
+	if !strings.Contains(body, "skeleton") {
+		t.Error("generic page should contain skeleton placeholders")
 	}
 }
 
@@ -785,8 +770,12 @@ func TestGenericPlugin_EndpointError(t *testing.T) {
 		t.Fatalf("expected 200 even with endpoint error, got %d", w.Code)
 	}
 	body := w.Body.String()
-	if !strings.Contains(body, "Failed to fetch") {
-		t.Error("error card should show failure message")
+	// Page now shows skeleton, not data — endpoint errors appear in the fragment.
+	if !strings.Contains(body, `hx-get="/fragments/metrics"`) {
+		t.Error("page should contain hx-get for lazy loading fragment")
+	}
+	if !strings.Contains(body, "skeleton") {
+		t.Error("page should contain skeleton placeholders")
 	}
 }
 
@@ -971,11 +960,12 @@ func TestGenericPlugin_SkipsEmptyPathPOST(t *testing.T) {
 		t.Fatalf("expected 200, got %d", w.Code)
 	}
 	body := w.Body.String()
-	if !strings.Contains(body, "Reload rules") {
-		t.Error("valid POST action should appear")
+	// Page now shows skeleton; actions are in the fragment.
+	if !strings.Contains(body, `hx-get="/fragments/firewall"`) {
+		t.Error("page should contain hx-get for lazy loading fragment")
 	}
-	if strings.Contains(body, "Empty path action") {
-		t.Error("empty-path POST should be skipped")
+	if !strings.Contains(body, "skeleton") {
+		t.Error("page should contain skeleton placeholders")
 	}
 }
 
@@ -1012,11 +1002,12 @@ func TestGenericPlugin_SkipsTraversalPOSTPath(t *testing.T) {
 		t.Fatalf("expected 200, got %d", w.Code)
 	}
 	body := w.Body.String()
-	if strings.Contains(body, "Traversal attack") {
-		t.Error("traversal POST path should be skipped")
+	// Page now shows skeleton; actions are in the fragment.
+	if !strings.Contains(body, `hx-get="/fragments/firewall"`) {
+		t.Error("page should contain hx-get for lazy loading fragment")
 	}
-	if !strings.Contains(body, "Reload rules") {
-		t.Error("valid POST action should still appear")
+	if !strings.Contains(body, "skeleton") {
+		t.Error("page should contain skeleton placeholders")
 	}
 }
 
@@ -1035,10 +1026,12 @@ func TestDashboard_WithMockAPI(t *testing.T) {
 		t.Fatalf("expected 200, got %d", w.Code)
 	}
 	body := w.Body.String()
-	for _, want := range []string{"test-node", "Debian 12", "arm", "2d 5h 10m"} {
-		if !strings.Contains(body, want) {
-			t.Errorf("dashboard should contain %q", want)
-		}
+	// Page now shows skeleton; data loads via fragment.
+	if !strings.Contains(body, `hx-get="/fragments/dashboard"`) {
+		t.Error("dashboard should contain hx-get for lazy loading fragment")
+	}
+	if !strings.Contains(body, "skeleton") {
+		t.Error("dashboard should contain skeleton placeholders")
 	}
 }
 
@@ -1057,23 +1050,12 @@ func TestUpdatePage_WithMockAPI(t *testing.T) {
 		t.Fatalf("expected 200, got %d", w.Code)
 	}
 	body := w.Body.String()
-	for _, want := range []string{
-		"5", "2", "Security Update", "full", "completed",
-		// Package list table (parity with TUI).
-		"openssl", "3.0.1", "3.0.2",
-		"curl", "7.88.0", "7.88.1",
-		// Last run details.
-		"Duration: 2m 15s", "Packages: 3",
-		// Log viewer — presence and content.
-		"View log output",
-		"Updating openssl",
-		// Both confirmation dialogs.
-		"Run a full system update?",
-		"Run security-only update?",
-	} {
-		if !strings.Contains(body, want) {
-			t.Errorf("update page should contain %q", want)
-		}
+	// Page now shows skeleton; data loads via fragment.
+	if !strings.Contains(body, `hx-get="/fragments/update"`) {
+		t.Error("update page should contain hx-get for lazy loading fragment")
+	}
+	if !strings.Contains(body, "skeleton") {
+		t.Error("update page should contain skeleton placeholders")
 	}
 }
 
@@ -1106,18 +1088,13 @@ func TestUpdatePage_SecurityHiddenWhenUnavailable(t *testing.T) {
 	if w.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", w.Code)
 	}
-	if strings.Contains(w.Body.String(), "Run Security Update") {
-		t.Fatal("security update button should be hidden when unavailable")
+	// Page now shows skeleton; security visibility is in the fragment.
+	body := w.Body.String()
+	if !strings.Contains(body, `hx-get="/fragments/update"`) {
+		t.Error("update page should contain hx-get for lazy loading fragment")
 	}
-	if strings.Contains(w.Body.String(), "Auto Security Updates") {
-		t.Fatal("auto_security form field should be hidden when unavailable")
-	}
-	if strings.Contains(w.Body.String(), "Security Source") {
-		t.Fatal("security_source form field should be hidden when unavailable")
-	}
-	// Empty-state: log viewer should be absent when RunStatus has no log.
-	if strings.Contains(w.Body.String(), "View log output") {
-		t.Fatal("log viewer should be absent when RunStatus.Log is empty")
+	if !strings.Contains(body, "skeleton") {
+		t.Error("update page should contain skeleton placeholders")
 	}
 }
 
@@ -1148,14 +1125,13 @@ func TestUpdatePage_EmptyPendingHidesTable(t *testing.T) {
 	if w.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", w.Code)
 	}
+	// Page now shows skeleton; table visibility is in the fragment.
 	body := w.Body.String()
-	// Package table header should be absent when no pending updates.
-	if strings.Contains(body, "<th>Package</th>") {
-		t.Error("package table should not render when pending list is empty")
+	if !strings.Contains(body, `hx-get="/fragments/update"`) {
+		t.Error("update page should contain hx-get for lazy loading fragment")
 	}
-	// Log viewer should be absent when RunStatus.Log is empty.
-	if strings.Contains(body, "View log output") {
-		t.Error("log viewer should not render when log is empty")
+	if !strings.Contains(body, "skeleton") {
+		t.Error("update page should contain skeleton placeholders")
 	}
 }
 
@@ -1182,15 +1158,13 @@ func TestUpdatePage_SecurityShownWhenAvailable(t *testing.T) {
 	if w.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", w.Code)
 	}
+	// Page now shows skeleton; security button visibility is in the fragment.
 	body := w.Body.String()
-	if !strings.Contains(body, "Run Security Update") {
-		t.Fatal("security update button should be visible when available")
+	if !strings.Contains(body, `hx-get="/fragments/update"`) {
+		t.Error("update page should contain hx-get for lazy loading fragment")
 	}
-	if !strings.Contains(body, "Auto Security Updates") {
-		t.Fatal("auto_security form field should be visible when available")
-	}
-	if !strings.Contains(body, "Security Source") {
-		t.Fatal("security_source form field should be visible when available")
+	if !strings.Contains(body, "skeleton") {
+		t.Error("update page should contain skeleton placeholders")
 	}
 }
 
@@ -1218,15 +1192,13 @@ func TestUpdatePage_SecurityHiddenWhenNil(t *testing.T) {
 	if w.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", w.Code)
 	}
+	// Page now shows skeleton; security button visibility is in the fragment.
 	body := w.Body.String()
-	if strings.Contains(body, "Run Security Update") {
-		t.Fatal("security update button should be hidden when SecurityAvailable is nil")
+	if !strings.Contains(body, `hx-get="/fragments/update"`) {
+		t.Error("update page should contain hx-get for lazy loading fragment")
 	}
-	if strings.Contains(body, "Auto Security Updates") {
-		t.Fatal("auto_security form field should be hidden when SecurityAvailable is nil")
-	}
-	if strings.Contains(body, "Security Source") {
-		t.Fatal("security_source form field should be hidden when SecurityAvailable is nil")
+	if !strings.Contains(body, "skeleton") {
+		t.Error("update page should contain skeleton placeholders")
 	}
 }
 
@@ -1253,12 +1225,13 @@ func TestUpdatePage_PartialAPIFailure(t *testing.T) {
 	if w.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", w.Code)
 	}
+	// Page now shows skeleton; partial failure rendering is in the fragment.
 	body := w.Body.String()
-	if !strings.Contains(body, "Pending Updates") {
-		t.Fatal("pending updates section should render with partial failure")
+	if !strings.Contains(body, `hx-get="/fragments/update"`) {
+		t.Error("update page should contain hx-get for lazy loading fragment")
 	}
-	if !strings.Contains(body, "0 3 * * *") {
-		t.Fatal("config should render with partial failure")
+	if !strings.Contains(body, "skeleton") {
+		t.Error("update page should contain skeleton placeholders")
 	}
 }
 
@@ -1996,10 +1969,12 @@ func TestNetworkPage_WithMockAPI(t *testing.T) {
 		t.Fatalf("expected 200, got %d", w.Code)
 	}
 	body := w.Body.String()
-	for _, want := range []string{"eth0", "192.168.1.10/24", "Online", "1.1.1.1"} {
-		if !strings.Contains(body, want) {
-			t.Errorf("network page should contain %q", want)
-		}
+	// Page now shows skeleton; data loads via fragment.
+	if !strings.Contains(body, `hx-get="/fragments/network"`) {
+		t.Error("network page should contain hx-get for lazy loading fragment")
+	}
+	if !strings.Contains(body, "skeleton") {
+		t.Error("network page should contain skeleton placeholders")
 	}
 }
 
@@ -2531,21 +2506,13 @@ func TestUpdatePage_ShowsEditForm(t *testing.T) {
 		t.Fatalf("expected 200, got %d", w.Code)
 	}
 
+	// Page now shows skeleton; edit form is in the fragment.
 	body := w.Body.String()
-	for _, want := range []string{
-		"Edit Settings",
-		`name="schedule"`,
-		`type="hidden" name="schedule_original"`,
-		`type="hidden" name="auto_security_original"`,
-		`type="hidden" name="security_source_original"`,
-		`name="auto_security"`,
-		`name="security_source"`,
-		"Save Settings",
-		"0 3 * * *",
-	} {
-		if !strings.Contains(body, want) {
-			t.Errorf("edit form should contain %q", want)
-		}
+	if !strings.Contains(body, `hx-get="/fragments/update"`) {
+		t.Error("update page should contain hx-get for lazy loading fragment")
+	}
+	if !strings.Contains(body, "skeleton") {
+		t.Error("update page should contain skeleton placeholders")
 	}
 }
 
@@ -3130,5 +3097,731 @@ func TestGenericAction_ErrorIncludesToast(t *testing.T) {
 	}
 	if !strings.Contains(body, `error-details`) {
 		t.Error("error action should include expandable error details")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Fragment endpoint tests — data loads via /fragments/* endpoints
+// ---------------------------------------------------------------------------
+
+func TestDashboardFragment_WithMockAPI(t *testing.T) {
+	api := mockAPI(t)
+	defer api.Close()
+
+	h := newTestHandler(t, api.URL, "")
+	req := httptest.NewRequest(http.MethodGet, "/fragments/dashboard", nil)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", w.Code)
+	}
+	body := w.Body.String()
+	for _, want := range []string{"test-node", "Debian 12", "arm", "2d 5h 10m"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("dashboard fragment should contain %q", want)
+		}
+	}
+}
+
+func TestDashboardFragment_WithAPIError(t *testing.T) {
+	h := newTestHandler(t, "http://localhost:1", "")
+	req := httptest.NewRequest(http.MethodGet, "/fragments/dashboard", nil)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", w.Code)
+	}
+	if !strings.Contains(w.Body.String(), "Failed to load system info") {
+		t.Fatal("fragment should show error when API unreachable")
+	}
+}
+
+func TestUpdateFragment_WithMockAPI(t *testing.T) {
+	api := mockAPI(t)
+	defer api.Close()
+
+	h := newTestHandler(t, api.URL, "")
+	req := httptest.NewRequest(http.MethodGet, "/fragments/update", nil)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", w.Code)
+	}
+	body := w.Body.String()
+	for _, want := range []string{
+		"5", "2", "Security Update", "full", "completed",
+		"openssl", "3.0.1", "3.0.2",
+		"curl", "7.88.0", "7.88.1",
+		"Duration: 2m 15s", "Packages: 3",
+		"View log output",
+		"Updating openssl",
+		"Run a full system update?",
+		"Run security-only update?",
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("update fragment should contain %q", want)
+		}
+	}
+}
+
+func TestUpdateFragment_WithAPIError(t *testing.T) {
+	h := newTestHandler(t, "http://localhost:1", "")
+	req := httptest.NewRequest(http.MethodGet, "/fragments/update", nil)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", w.Code)
+	}
+	if !strings.Contains(w.Body.String(), "Failed to load pending updates") {
+		t.Fatal("fragment should show error when API unreachable")
+	}
+}
+
+func TestUpdateFragment_EmptyPendingHidesTable(t *testing.T) {
+	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/v1/plugins/update/status":
+			json.NewEncoder(w).Encode([]PendingUpdate{})
+		case "/api/v1/plugins/update/logs":
+			json.NewEncoder(w).Encode(RunStatus{Type: "full", Status: "completed"})
+		case "/api/v1/plugins/update/config":
+			json.NewEncoder(w).Encode(UpdateConfig{SecurityAvailable: boolPtr(true)})
+		case "/api/v1/plugins":
+			json.NewEncoder(w).Encode([]map[string]any{})
+		case "/api/v1/node":
+			json.NewEncoder(w).Encode(NodeInfo{Hostname: "test"})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer api.Close()
+
+	h := newTestHandler(t, api.URL, "")
+	req := httptest.NewRequest(http.MethodGet, "/fragments/update", nil)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", w.Code)
+	}
+	body := w.Body.String()
+	if strings.Contains(body, "<th>Package</th>") {
+		t.Error("package table should not render when pending list is empty")
+	}
+	if strings.Contains(body, "View log output") {
+		t.Error("log viewer should not render when log is empty")
+	}
+}
+
+func TestUpdateFragment_SecurityShownWhenAvailable(t *testing.T) {
+	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/v1/plugins/update/status":
+			json.NewEncoder(w).Encode([]PendingUpdate{
+				{Package: "vim", CurrentVersion: "9.0.1", NewVersion: "9.0.2"},
+			})
+		case "/api/v1/plugins/update/logs":
+			json.NewEncoder(w).Encode(RunStatus{})
+		case "/api/v1/plugins/update/config":
+			json.NewEncoder(w).Encode(UpdateConfig{SecurityAvailable: boolPtr(true)})
+		case "/api/v1/plugins":
+			json.NewEncoder(w).Encode([]map[string]any{})
+		case "/api/v1/node":
+			json.NewEncoder(w).Encode(NodeInfo{Hostname: "test"})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer api.Close()
+
+	h := newTestHandler(t, api.URL, "")
+	req := httptest.NewRequest(http.MethodGet, "/fragments/update", nil)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", w.Code)
+	}
+	body := w.Body.String()
+	if !strings.Contains(body, "Run Security Update") {
+		t.Fatal("security update button should be visible when available")
+	}
+	if !strings.Contains(body, "Auto Security Updates") {
+		t.Fatal("auto_security form field should be visible when available")
+	}
+	if !strings.Contains(body, "Security Source") {
+		t.Fatal("security_source form field should be visible when available")
+	}
+}
+
+func TestUpdateFragment_SecurityHiddenWhenUnavailable(t *testing.T) {
+	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/v1/plugins/update/status":
+			json.NewEncoder(w).Encode([]PendingUpdate{
+				{Package: "vim", CurrentVersion: "9.0.1", NewVersion: "9.0.2"},
+			})
+		case "/api/v1/plugins/update/logs":
+			json.NewEncoder(w).Encode(RunStatus{})
+		case "/api/v1/plugins/update/config":
+			json.NewEncoder(w).Encode(UpdateConfig{SecurityAvailable: boolPtr(false)})
+		case "/api/v1/plugins":
+			json.NewEncoder(w).Encode([]map[string]any{})
+		case "/api/v1/node":
+			json.NewEncoder(w).Encode(NodeInfo{Hostname: "test"})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer api.Close()
+
+	h := newTestHandler(t, api.URL, "")
+	req := httptest.NewRequest(http.MethodGet, "/fragments/update", nil)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", w.Code)
+	}
+	if strings.Contains(w.Body.String(), "Run Security Update") {
+		t.Fatal("security update button should be hidden when unavailable")
+	}
+	if strings.Contains(w.Body.String(), "Auto Security Updates") {
+		t.Fatal("auto_security form field should be hidden when unavailable")
+	}
+	if strings.Contains(w.Body.String(), "Security Source") {
+		t.Fatal("security_source form field should be hidden when unavailable")
+	}
+	if strings.Contains(w.Body.String(), "View log output") {
+		t.Fatal("log viewer should be absent when RunStatus.Log is empty")
+	}
+}
+
+func TestUpdateFragment_SecurityHiddenWhenNil(t *testing.T) {
+	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/v1/plugins/update/status":
+			json.NewEncoder(w).Encode([]PendingUpdate{
+				{Package: "vim", CurrentVersion: "9.0.1", NewVersion: "9.0.2"},
+			})
+		case "/api/v1/plugins/update/logs":
+			json.NewEncoder(w).Encode(RunStatus{})
+		case "/api/v1/plugins/update/config":
+			json.NewEncoder(w).Encode(UpdateConfig{})
+		case "/api/v1/plugins":
+			json.NewEncoder(w).Encode([]map[string]any{})
+		case "/api/v1/node":
+			json.NewEncoder(w).Encode(NodeInfo{Hostname: "test"})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer api.Close()
+
+	h := newTestHandler(t, api.URL, "")
+	req := httptest.NewRequest(http.MethodGet, "/fragments/update", nil)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", w.Code)
+	}
+	body := w.Body.String()
+	if strings.Contains(body, "Run Security Update") {
+		t.Fatal("security update button should be hidden when SecurityAvailable is nil")
+	}
+	if strings.Contains(body, "Auto Security Updates") {
+		t.Fatal("auto_security form field should be hidden when SecurityAvailable is nil")
+	}
+	if strings.Contains(body, "Security Source") {
+		t.Fatal("security_source form field should be hidden when SecurityAvailable is nil")
+	}
+}
+
+func TestUpdateFragment_PartialAPIFailure(t *testing.T) {
+	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/v1/plugins/update/status":
+			json.NewEncoder(w).Encode([]PendingUpdate{
+				{Package: "vim", CurrentVersion: "9.0.1", NewVersion: "9.0.2"},
+			})
+		case "/api/v1/plugins/update/logs":
+			w.WriteHeader(http.StatusInternalServerError)
+		case "/api/v1/plugins/update/config":
+			json.NewEncoder(w).Encode(UpdateConfig{SecurityAvailable: boolPtr(true), Schedule: "0 3 * * *"})
+		case "/api/v1/plugins":
+			json.NewEncoder(w).Encode([]map[string]any{})
+		case "/api/v1/node":
+			json.NewEncoder(w).Encode(NodeInfo{Hostname: "test"})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer api.Close()
+
+	h := newTestHandler(t, api.URL, "")
+	req := httptest.NewRequest(http.MethodGet, "/fragments/update", nil)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", w.Code)
+	}
+	body := w.Body.String()
+	if !strings.Contains(body, "Pending Updates") {
+		t.Fatal("pending updates section should render with partial failure")
+	}
+	if !strings.Contains(body, "0 3 * * *") {
+		t.Fatal("config should render with partial failure")
+	}
+}
+
+func TestUpdateFragment_ShowsEditForm(t *testing.T) {
+	api := mockAPI(t)
+	defer api.Close()
+
+	h := newTestHandler(t, api.URL, "")
+	req := httptest.NewRequest(http.MethodGet, "/fragments/update", nil)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", w.Code)
+	}
+
+	body := w.Body.String()
+	for _, want := range []string{
+		"Edit Settings",
+		`name="schedule"`,
+		`type="hidden" name="schedule_original"`,
+		`type="hidden" name="auto_security_original"`,
+		`type="hidden" name="security_source_original"`,
+		`name="auto_security"`,
+		`name="security_source"`,
+		"Save Settings",
+		"0 3 * * *",
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("edit form should contain %q", want)
+		}
+	}
+}
+
+func TestNetworkFragment_WithMockAPI(t *testing.T) {
+	api := mockAPI(t)
+	defer api.Close()
+
+	h := newTestHandler(t, api.URL, "")
+	req := httptest.NewRequest(http.MethodGet, "/fragments/network", nil)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", w.Code)
+	}
+	body := w.Body.String()
+	for _, want := range []string{"eth0", "192.168.1.10/24", "Online", "1.1.1.1"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("network fragment should contain %q", want)
+		}
+	}
+}
+
+func TestNetworkFragment_WithAPIError(t *testing.T) {
+	h := newTestHandler(t, "http://localhost:1", "")
+	req := httptest.NewRequest(http.MethodGet, "/fragments/network", nil)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", w.Code)
+	}
+	if !strings.Contains(w.Body.String(), "Failed to load network status") {
+		t.Fatal("fragment should show error when API unreachable")
+	}
+}
+
+func TestPluginFragment_RendersForKnownPlugin(t *testing.T) {
+	mux := http.NewServeMux()
+
+	mux.HandleFunc("/api/v1/plugins", func(w http.ResponseWriter, _ *http.Request) {
+		json.NewEncoder(w).Encode([]PluginInfo{
+			{
+				Name: "firewall", Version: "0.1.0",
+				Description: "Firewall management",
+				RoutePrefix: "/api/v1/plugins/firewall",
+				Endpoints: []PluginEndpoint{
+					{Method: "GET", Path: "/rules", Description: "Active firewall rules"},
+					{Method: "POST", Path: "/reload", Description: "Reload firewall rules"},
+				},
+			},
+		})
+	})
+
+	mux.HandleFunc("/api/v1/plugins/firewall/rules", func(w http.ResponseWriter, _ *http.Request) {
+		json.NewEncoder(w).Encode(map[string]any{
+			"rules": []string{"allow 22/tcp", "allow 80/tcp"},
+		})
+	})
+
+	api := httptest.NewServer(mux)
+	defer api.Close()
+
+	h := newTestHandler(t, api.URL, "")
+	req := httptest.NewRequest(http.MethodGet, "/fragments/firewall", nil)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", w.Code)
+	}
+	body := w.Body.String()
+	if !strings.Contains(body, "Firewall management") {
+		t.Error("fragment should show plugin description")
+	}
+	if !strings.Contains(body, "Active firewall rules") {
+		t.Error("fragment should show endpoint description")
+	}
+	if !strings.Contains(body, "Reload firewall rules") {
+		t.Error("fragment should show POST action button")
+	}
+	if strings.Contains(body, "/api/v1/plugins/firewall/reload") {
+		t.Error("action button should NOT use direct API path")
+	}
+	if !strings.Contains(body, "/firewall/actions/reload") {
+		t.Error("action button should use proxied web path")
+	}
+	if !strings.Contains(body, `hx-confirm="Execute`) {
+		t.Error("generic POST actions should have hx-confirm for safety")
+	}
+	if !strings.Contains(body, "allow 22/tcp") {
+		t.Error("fragment should render fetched endpoint data")
+	}
+}
+
+func TestPluginFragment_EndpointError(t *testing.T) {
+	mux := http.NewServeMux()
+
+	mux.HandleFunc("/api/v1/plugins", func(w http.ResponseWriter, _ *http.Request) {
+		json.NewEncoder(w).Encode([]PluginInfo{
+			{
+				Name: "metrics", Version: "0.1.0",
+				Description: "System metrics",
+				RoutePrefix: "/api/v1/plugins/metrics",
+				Endpoints: []PluginEndpoint{
+					{Method: "GET", Path: "/cpu", Description: "CPU usage"},
+				},
+			},
+		})
+	})
+
+	mux.HandleFunc("/api/v1/plugins/metrics/cpu", func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	})
+
+	api := httptest.NewServer(mux)
+	defer api.Close()
+
+	h := newTestHandler(t, api.URL, "")
+	req := httptest.NewRequest(http.MethodGet, "/fragments/metrics", nil)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200 even with endpoint error, got %d", w.Code)
+	}
+	body := w.Body.String()
+	if !strings.Contains(body, "Failed to fetch") {
+		t.Error("error card should show failure message")
+	}
+}
+
+func TestPluginFragment_SkipsEmptyPathPOST(t *testing.T) {
+	mux := http.NewServeMux()
+
+	mux.HandleFunc("/api/v1/plugins", func(w http.ResponseWriter, _ *http.Request) {
+		json.NewEncoder(w).Encode([]PluginInfo{
+			{
+				Name: "firewall", Version: "0.1.0",
+				Description: "Firewall management",
+				RoutePrefix: "/api/v1/plugins/firewall",
+				Endpoints: []PluginEndpoint{
+					{Method: "GET", Path: "/rules", Description: "Active rules"},
+					{Method: "POST", Path: "", Description: "Empty path action"},
+					{Method: "POST", Path: "/reload", Description: "Reload rules"},
+				},
+			},
+		})
+	})
+
+	mux.HandleFunc("/api/v1/plugins/firewall/rules", func(w http.ResponseWriter, _ *http.Request) {
+		json.NewEncoder(w).Encode(map[string]string{"rules": "allow 22"})
+	})
+
+	api := httptest.NewServer(mux)
+	defer api.Close()
+
+	h := newTestHandler(t, api.URL, "")
+	req := httptest.NewRequest(http.MethodGet, "/fragments/firewall", nil)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", w.Code)
+	}
+	body := w.Body.String()
+	if !strings.Contains(body, "Reload rules") {
+		t.Error("valid POST action should appear")
+	}
+	if strings.Contains(body, "Empty path action") {
+		t.Error("empty-path POST should be skipped")
+	}
+}
+
+func TestPluginFragment_SkipsTraversalPOSTPath(t *testing.T) {
+	mux := http.NewServeMux()
+
+	mux.HandleFunc("/api/v1/plugins", func(w http.ResponseWriter, _ *http.Request) {
+		json.NewEncoder(w).Encode([]PluginInfo{
+			{
+				Name: "firewall", Version: "0.1.0",
+				Description: "Firewall management",
+				RoutePrefix: "/api/v1/plugins/firewall",
+				Endpoints: []PluginEndpoint{
+					{Method: "POST", Path: "/../../../etc/shadow", Description: "Traversal attack"},
+					{Method: "POST", Path: "/reload", Description: "Reload rules"},
+				},
+			},
+		})
+	})
+
+	api := httptest.NewServer(mux)
+	defer api.Close()
+
+	h := newTestHandler(t, api.URL, "")
+	req := httptest.NewRequest(http.MethodGet, "/fragments/firewall", nil)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", w.Code)
+	}
+	body := w.Body.String()
+	if strings.Contains(body, "Traversal attack") {
+		t.Error("traversal POST path should be skipped")
+	}
+	if !strings.Contains(body, "Reload rules") {
+		t.Error("valid POST action should still appear")
+	}
+}
+
+func TestPluginFragment_UnknownPlugin404(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/v1/plugins", func(w http.ResponseWriter, _ *http.Request) {
+		json.NewEncoder(w).Encode([]PluginInfo{
+			{Name: "firewall", Version: "1.0.0", RoutePrefix: "/api/v1/plugins/firewall"},
+		})
+	})
+
+	api := httptest.NewServer(mux)
+	defer api.Close()
+
+	h := newTestHandler(t, api.URL, "")
+	req := httptest.NewRequest(http.MethodGet, "/fragments/nonexistent", nil)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("expected 404 for unknown plugin fragment, got %d", w.Code)
+	}
+}
+
+// TestPluginPage_CacheFallbackOnAPIError verifies that plugin page requests
+// use cached plugins when the API is down, instead of returning 502.
+func TestPluginPage_CacheFallbackOnAPIError(t *testing.T) {
+	calls := 0
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/v1/plugins", func(w http.ResponseWriter, _ *http.Request) {
+		calls++
+		if calls == 1 {
+			json.NewEncoder(w).Encode([]PluginInfo{
+				{Name: "firewall", Version: "1.0.0", RoutePrefix: "/api/v1/plugins/firewall"},
+			})
+			return
+		}
+		http.Error(w, "boom", http.StatusInternalServerError)
+	})
+	mux.HandleFunc("/api/v1/node", func(w http.ResponseWriter, _ *http.Request) {
+		json.NewEncoder(w).Encode(NodeInfo{Hostname: "test"})
+	})
+
+	api := httptest.NewServer(mux)
+	defer api.Close()
+
+	h := newTestHandler(t, api.URL, "")
+
+	// First request: populates plugin cache.
+	req := httptest.NewRequest(http.MethodGet, "/firewall", nil)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("first request: expected 200, got %d", w.Code)
+	}
+
+	// Expire cache so fetchPlugins actually calls the API again.
+	h.cache.mu.Lock()
+	h.cache.fetchedAt = h.cache.fetchedAt.Add(-2 * h.cache.ttl)
+	h.cache.mu.Unlock()
+
+	// Second request: API returns 500, should fall back to cached plugin.
+	req = httptest.NewRequest(http.MethodGet, "/firewall", nil)
+	w = httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("cache fallback: expected 200, got %d (body: %s)", w.Code, w.Body.String())
+	}
+}
+
+// TestPluginPage_NoDuplicateFetchPlugins verifies that handleGenericPlugin
+// pre-populates the plugin list so withPlugins does not call fetchPlugins again.
+func TestPluginPage_NoDuplicateFetchPlugins(t *testing.T) {
+	fetchCount := 0
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/v1/plugins", func(w http.ResponseWriter, _ *http.Request) {
+		fetchCount++
+		json.NewEncoder(w).Encode([]PluginInfo{
+			{Name: "firewall", Version: "1.0.0", RoutePrefix: "/api/v1/plugins/firewall"},
+		})
+	})
+	mux.HandleFunc("/api/v1/node", func(w http.ResponseWriter, _ *http.Request) {
+		json.NewEncoder(w).Encode(NodeInfo{Hostname: "test"})
+	})
+
+	api := httptest.NewServer(mux)
+	defer api.Close()
+
+	h := newTestHandler(t, api.URL, "")
+
+	// Ensure cache is empty so every fetchPlugins call hits the API.
+	req := httptest.NewRequest(http.MethodGet, "/firewall", nil)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", w.Code)
+	}
+	// lookupPlugin calls fetchPlugins once; withPlugins should reuse pre-populated
+	// Plugins and NOT call fetchPlugins again, so total should be 1.
+	if fetchCount != 1 {
+		t.Errorf("expected 1 fetchPlugins call, got %d (double-fetch not eliminated)", fetchCount)
+	}
+}
+
+// TestPluginPage_CacheFallback_UnknownPlugin404 verifies that when the API is
+// down and the requested plugin is NOT in the stale cache, we get 404 (not 502).
+func TestPluginPage_CacheFallback_UnknownPlugin404(t *testing.T) {
+	calls := 0
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/v1/plugins", func(w http.ResponseWriter, _ *http.Request) {
+		calls++
+		if calls == 1 {
+			json.NewEncoder(w).Encode([]PluginInfo{
+				{Name: "firewall", Version: "1.0.0", RoutePrefix: "/api/v1/plugins/firewall"},
+			})
+			return
+		}
+		http.Error(w, "boom", http.StatusInternalServerError)
+	})
+	mux.HandleFunc("/api/v1/node", func(w http.ResponseWriter, _ *http.Request) {
+		json.NewEncoder(w).Encode(NodeInfo{Hostname: "test"})
+	})
+
+	api := httptest.NewServer(mux)
+	defer api.Close()
+
+	h := newTestHandler(t, api.URL, "")
+
+	// Prime cache with "firewall".
+	req := httptest.NewRequest(http.MethodGet, "/firewall", nil)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("prime: expected 200, got %d", w.Code)
+	}
+
+	// Expire plugin cache.
+	h.cache.mu.Lock()
+	h.cache.fetchedAt = h.cache.fetchedAt.Add(-2 * h.cache.ttl)
+	h.cache.mu.Unlock()
+
+	// Request "backup" (not in stale cache) while API is down → should 404.
+	req = httptest.NewRequest(http.MethodGet, "/backup", nil)
+	w = httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("expected 404 for unknown plugin with stale cache, got %d", w.Code)
+	}
+}
+
+// TestPluginPage_CacheFallback_SkipsNodeFetch verifies that when the plugin
+// registry fetch fails and cache fallback is used, the sidebar node-info
+// fetch is skipped (avoids compounding a down API with more failing calls).
+func TestPluginPage_CacheFallback_SkipsNodeFetch(t *testing.T) {
+	pluginCalls := 0
+	nodeCalls := 0
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/v1/plugins", func(w http.ResponseWriter, _ *http.Request) {
+		pluginCalls++
+		if pluginCalls == 1 {
+			json.NewEncoder(w).Encode([]PluginInfo{
+				{Name: "firewall", Version: "1.0.0", RoutePrefix: "/api/v1/plugins/firewall"},
+			})
+			return
+		}
+		http.Error(w, "boom", http.StatusInternalServerError)
+	})
+	mux.HandleFunc("/api/v1/node", func(w http.ResponseWriter, _ *http.Request) {
+		nodeCalls++
+		json.NewEncoder(w).Encode(NodeInfo{Hostname: "test"})
+	})
+
+	api := httptest.NewServer(mux)
+	defer api.Close()
+
+	h := newTestHandler(t, api.URL, "")
+
+	// Prime: healthy request populates both plugin and node caches.
+	req := httptest.NewRequest(http.MethodGet, "/firewall", nil)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("prime: expected 200, got %d", w.Code)
+	}
+	primeNodeCalls := nodeCalls
+
+	// Expire both caches so next request must re-fetch.
+	h.cache.mu.Lock()
+	h.cache.fetchedAt = h.cache.fetchedAt.Add(-2 * h.cache.ttl)
+	h.cache.mu.Unlock()
+	h.nodes.mu.Lock()
+	h.nodes.fetchedAt = h.nodes.fetchedAt.Add(-2 * h.nodes.ttl)
+	h.nodes.mu.Unlock()
+
+	// Second request: plugin API down, should use cache fallback and
+	// NOT attempt the node-info fetch.
+	req = httptest.NewRequest(http.MethodGet, "/firewall", nil)
+	w = httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("cache fallback: expected 200, got %d", w.Code)
+	}
+
+	if nodeCalls != primeNodeCalls {
+		t.Errorf("expected no additional /api/v1/node calls during cache fallback, got %d extra",
+			nodeCalls-primeNodeCalls)
 	}
 }

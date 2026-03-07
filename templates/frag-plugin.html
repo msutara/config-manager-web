@@ -1,0 +1,28 @@
+<p class="detail">{{ .Plugin.Description }} — v{{ .Plugin.Version }}</p>
+
+{{ range .EndpointData }}
+<div class="card">
+    <h3>{{ .Description }}</h3>
+    {{ if .Error }}
+    <div class="alert alert-error">{{ .Error }}</div>
+    {{ else }}
+    <pre>{{ .Data }}</pre>
+    {{ end }}
+</div>
+{{ end }}
+
+{{ if .Actions }}
+<h3>Actions</h3>
+<div class="actions">
+    {{ range .Actions }}
+    <button class="btn btn-primary"
+            hx-post="/{{ $.PluginName }}/actions{{ .Path }}"
+            hx-target="#action-result"
+            hx-swap="innerHTML"
+            hx-confirm="Execute '{{ .Description }}'?">
+        {{ .Description }}
+    </button>
+    {{ end }}
+</div>
+<div id="action-result"></div>
+{{ end }}

@@ -9,6 +9,8 @@ const sessionCookieName = "cm_session"
 
 // requireSession is middleware that validates the session cookie.
 // When auth is disabled (empty token), all requests pass through.
+// For htmx requests (HX-Request header), returns 401 with HX-Redirect
+// instead of 303 redirect to avoid embedding the login page in fragments.
 func (h *Handler) requireSession(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if h.authToken == "" {
@@ -19,6 +21,11 @@ func (h *Handler) requireSession(next http.Handler) http.Handler {
 		cookie, err := r.Cookie(sessionCookieName)
 		if err != nil || !h.validToken(cookie.Value) {
 			slog.Debug("web: invalid or missing session cookie", "path", r.URL.Path)
+			if r.Header.Get("HX-Request") == "true" {
+				w.Header().Set("HX-Redirect", "/login")
+				w.WriteHeader(http.StatusUnauthorized)
+				return
+			}
 			http.Redirect(w, r, "/login", http.StatusSeeOther)
 			return
 		}

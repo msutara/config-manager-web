@@ -1,0 +1,71 @@
+{{ if .StatusErr }}
+<div class="alert alert-error">Failed to load network status: {{ .StatusErr }} <button class="btn btn-sm" onclick="htmx.trigger(document.getElementById('page-data'),'retry')">Retry</button></div>
+{{ else }}
+<div class="card-grid">
+    <div class="card">
+        <h3>Connectivity</h3>
+        <p class="value {{ if .Status.InternetReachable }}status-ok{{ else }}status-error{{ end }}">
+            {{ if .Status.InternetReachable }}Online{{ else }}Offline{{ end }}
+        </p>
+    </div>
+    <div class="card">
+        <h3>DNS</h3>
+        <p class="value {{ if .Status.DNSReachable }}status-ok{{ else }}status-error{{ end }}">
+            {{ if .Status.DNSReachable }}Working{{ else }}Not working{{ end }}
+        </p>
+    </div>
+    {{ if .Status.DefaultGateway }}
+    <div class="card">
+        <h3>Default Gateway</h3>
+        <p class="value">{{ .Status.DefaultGateway }}</p>
+    </div>
+    {{ end }}
+</div>
+{{ end }}
+
+<h3>Interfaces</h3>
+
+{{ if .IfaceErr }}
+<div class="alert alert-error">Failed to load interfaces: {{ .IfaceErr }}</div>
+{{ else if .Ifaces }}
+<table class="data-table">
+    <thead>
+        <tr>
+            <th>Name</th>
+            <th>MAC</th>
+            <th>State</th>
+            <th>IP</th>
+        </tr>
+    </thead>
+    <tbody>
+        {{ range .Ifaces }}
+        <tr>
+            <td>{{ .Name }}</td>
+            <td>{{ .MAC }}</td>
+            <td><span class="badge badge-{{ .State }}">{{ .State }}</span></td>
+            <td>{{ .IP }}</td>
+        </tr>
+        {{ end }}
+    </tbody>
+</table>
+{{ else }}
+<p>No interfaces found.</p>
+{{ end }}
+
+{{ if not .DNSErr }}
+<h3>DNS Configuration</h3>
+<div class="card">
+    <table class="info-table">
+        <tr>
+            <td>Servers</td>
+            <td>{{ range .DNS.Nameservers }}{{ . }} {{ end }}</td>
+        </tr>
+        {{ if .DNS.Search }}
+        <tr>
+            <td>Search Domains</td>
+            <td>{{ range .DNS.Search }}{{ . }} {{ end }}</td>
+        </tr>
+        {{ end }}
+    </table>
+</div>
+{{ end }}

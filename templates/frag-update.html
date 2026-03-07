@@ -1,0 +1,155 @@
+{{ if .StatusErr }}
+<div class="alert alert-error">Failed to load pending updates: {{ .StatusErr }} <button class="btn btn-sm" onclick="htmx.trigger(document.getElementById('page-data'),'retry')">Retry</button></div>
+{{ else }}
+<div class="card-grid">
+    <div class="card">
+        <h3>Pending Updates</h3>
+        <p class="value">{{ .PendingCount }}</p>
+    </div>
+    <div class="card">
+        <h3>Security Updates</h3>
+        <p class="value">{{ .SecurityCount }}</p>
+    </div>
+</div>
+
+{{ if .Pending }}
+<h3>Packages</h3>
+<table class="data-table">
+    <thead>
+        <tr>
+            <th>Package</th>
+            <th>Current</th>
+            <th>New</th>
+            <th>Security</th>
+        </tr>
+    </thead>
+    <tbody>
+        {{ range .Pending }}
+        <tr>
+            <td>{{ .Package }}</td>
+            <td>{{ .CurrentVersion }}</td>
+            <td>{{ .NewVersion }}</td>
+            <td>{{ if .Security }}<span class="badge badge-security" aria-label="Security update" title="Security update">!</span>{{ end }}</td>
+        </tr>
+        {{ end }}
+    </tbody>
+</table>
+{{ end }}
+{{ end }}
+
+{{ if not .LogsErr }}
+{{ if .RunStatus.Status }}
+<div class="card-grid">
+    <div class="card">
+        <h3>Last Run</h3>
+        <p class="value">{{ .RunStatus.Type }} — {{ .RunStatus.Status }}</p>
+        {{ if .RunStatus.StartedAt }}<p class="detail">{{ .RunStatus.StartedAt }}</p>{{ end }}
+        {{ if .RunStatus.Duration }}<p class="detail">Duration: {{ .RunStatus.Duration }}</p>{{ end }}
+        {{ if .RunStatus.Status }}<p class="detail">Packages: {{ .RunStatus.Packages }}</p>{{ end }}
+    </div>
+</div>
+{{ if .RunStatus.Log }}
+<details class="log-viewer">
+    <summary>View log output</summary>
+    <pre class="log-pre">{{ .RunStatus.Log }}</pre>
+</details>
+{{ end }}
+{{ end }}
+{{ end }}
+
+<h3>Actions</h3>
+
+<div id="update-result"></div>
+
+<div class="actions">
+    <button class="btn btn-primary"
+            hx-post="/update/run"
+            hx-vals='{"type":"full"}'
+            hx-target="#update-result"
+            hx-swap="innerHTML"
+            hx-indicator="#update-spinner"
+            hx-confirm="Run a full system update? This will update all packages.">
+        Run Full Update
+    </button>
+
+    {{ if and (not .ConfigErr) (derefBool .Config.SecurityAvailable) }}
+    <button class="btn btn-secondary"
+            hx-post="/update/run"
+            hx-vals='{"type":"security"}'
+            hx-target="#update-result"
+            hx-swap="innerHTML"
+            hx-indicator="#update-spinner"
+            hx-confirm="Run security-only update? This will install security patches.">
+        Run Security Update
+    </button>
+    {{ end }}
+
+    <span id="update-spinner" class="spinner"></span>
+</div>
+
+{{ if not .ConfigErr }}
+<h3>Configuration</h3>
+<div class="card">
+    <table class="info-table">
+        {{ if and (not .ConfigErr) (derefBool .Config.SecurityAvailable) }}
+        <tr>
+            <td>Security Source</td>
+            <td>{{ if .Config.SecuritySource }}{{ .Config.SecuritySource }}{{ else }}N/A{{ end }}</td>
+        </tr>
+        <tr>
+            <td>Auto Security Updates</td>
+            <td>{{ if .Config.AutoSecurity }}{{ if derefBool .Config.AutoSecurity }}Enabled{{ else }}Disabled{{ end }}{{ else }}Unknown{{ end }}</td>
+        </tr>
+        {{ end }}
+        {{ if .Config.Schedule }}
+        <tr>
+            <td>Schedule</td>
+            <td>{{ .Config.Schedule }}</td>
+        </tr>
+        {{ end }}
+    </table>
+</div>
+
+<h3>Edit Settings</h3>
+<div id="settings-result"></div>
+
+<div class="card">
+    <form hx-post="/update/settings"
+          hx-target="#settings-result"
+          hx-swap="innerHTML"
+          hx-indicator="#settings-spinner">
+        <div class="form-group">
+            <label for="schedule">Cron Schedule (5 fields: min hr dom mon dow)</label>
+            <input type="hidden" name="schedule_original" value="{{ .Config.Schedule }}">
+            <input type="text" id="schedule" name="schedule"
+                   value="{{ .Config.Schedule }}"
+                   placeholder="e.g. 0 3 * * * or @daily"
+                   class="form-input">
+        </div>
+        {{ if and (not .ConfigErr) (derefBool .Config.SecurityAvailable) }}
+        <div class="form-group">
+            <label for="auto_security">Auto Security Updates</label>
+            <input type="hidden" name="auto_security_original" value="{{ if .Config.AutoSecurity }}{{ if derefBool .Config.AutoSecurity }}true{{ else }}false{{ end }}{{ end }}">
+            <select id="auto_security" name="auto_security" class="form-input">
+                {{ if not .Config.AutoSecurity }}<option value="" selected>— unchanged —</option>{{ end }}
+                <option value="true"{{ if and .Config.AutoSecurity (derefBool .Config.AutoSecurity) }} selected{{ end }}>Enabled</option>
+                <option value="false"{{ if and .Config.AutoSecurity (not (derefBool .Config.AutoSecurity)) }} selected{{ end }}>Disabled</option>
+            </select>
+        </div>
+        <div class="form-group">
+            <label for="security_source">Security Source</label>
+            <input type="hidden" name="security_source_original" value="{{ .Config.SecuritySource }}">
+            <select id="security_source" name="security_source" class="form-input">
+                {{ if not .Config.SecuritySource }}<option value="" selected>— unchanged —</option>{{ end }}
+                <option value="detected"{{ if eq .Config.SecuritySource "detected" }} selected{{ end }}>Detected</option>
+                <option value="always"{{ if eq .Config.SecuritySource "always" }} selected{{ end }}>Always</option>
+            </select>
+        </div>
+        {{ end }}
+        <div class="actions">
+            <button type="submit" class="btn btn-primary">Save Settings</button>
+            <span id="settings-spinner" class="spinner"></span>
+        </div>
+    </form>
+</div>
+{{ end }}

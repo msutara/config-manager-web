@@ -57,6 +57,31 @@ func (c *pluginCache) getAny() ([]PluginInfo, bool) {
 	return nil, false
 }
 
+// nodeCache caches NodeInfo from /api/v1/node with a short TTL to avoid
+// duplicate API calls when both the sidebar and a fragment need node data.
+type nodeCache struct {
+	mu        sync.RWMutex
+	node      *NodeInfo
+	fetchedAt time.Time
+	ttl       time.Duration
+}
+
+func (c *nodeCache) get() (NodeInfo, bool) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	if c.node != nil && time.Since(c.fetchedAt) < c.ttl {
+		return *c.node, true
+	}
+	return NodeInfo{}, false
+}
+
+func (c *nodeCache) set(node NodeInfo) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.node = &node
+	c.fetchedAt = time.Now()
+}
+
 // Handler serves the web UI and proxies actions to the CM JSON API.
 type Handler struct {
 	router    chi.Router
@@ -65,6 +90,7 @@ type Handler struct {
 	templates map[string]*template.Template
 	client    *apiClient
 	cache     pluginCache
+	nodes     nodeCache
 }
 
 // formatUptime converts seconds to a human-readable "Xd Xh Xm" string.
@@ -111,6 +137,7 @@ func NewHandler(apiURL, authToken string) http.Handler {
 		authToken: authToken,
 		client:    newAPIClient(apiURL, authToken),
 		cache:     pluginCache{ttl: 30 * time.Second},
+		nodes:     nodeCache{ttl: 5 * time.Second},
 	}
 
 	funcMap := template.FuncMap{
@@ -147,6 +174,11 @@ func NewHandler(apiURL, authToken string) http.Handler {
 	// Progress is a standalone HTMX fragment (no layout).
 	h.templates["progress.html"] = template.Must(
 		template.New("progress").Funcs(funcMap).Parse(string(mustRead("progress.html"))))
+	// Data fragment templates — standalone htmx fragments for lazy loading.
+	for _, frag := range []string{"frag-dashboard.html", "frag-update.html", "frag-network.html", "frag-plugin.html"} {
+		h.templates[frag] = template.Must(
+			template.New(frag).Funcs(funcMap).Parse(string(mustRead(frag))))
+	}
 
 	h.router = chi.NewRouter()
 
@@ -186,6 +218,12 @@ func NewHandler(apiURL, authToken string) http.Handler {
 
 		// Network plugin (custom handler for richer UX).
 		r.Get("/network", h.handleNetwork)
+
+		// Data fragments for skeleton lazy-loading (htmx hx-trigger="load").
+		r.Get("/fragments/dashboard", h.handleDashboardFragment)
+		r.Get("/fragments/update", h.handleUpdateFragment)
+		r.Get("/fragments/network", h.handleNetworkFragment)
+		r.Get("/fragments/{plugin:[a-z][a-z0-9-]*}", h.handlePluginFragment)
 	})
 
 	return h
@@ -272,27 +310,51 @@ func (h *Handler) fetchPlugins(r *http.Request) ([]PluginInfo, error) {
 // both the API and cache (including expired entries) are empty,
 // PluginsUnavailable is set so the template can show a message.
 func (h *Handler) withPlugins(r *http.Request, data map[string]any) map[string]any {
-	plugins, err := h.fetchPlugins(r)
-	if err != nil {
-		slog.Debug("web: sidebar plugin fetch failed, trying stale cache", "error", err)
-		if cached, ok := h.cache.getAny(); ok {
-			plugins = cached
+	var plugins []PluginInfo
+	var err error
+
+	// If the caller already fetched plugins (e.g. via lookupPlugin), reuse
+	// them to avoid a duplicate fetchPlugins call.  We check the sentinel
+	// flag rather than slice length so an empty plugin list is also reused.
+	alreadyFetched, _ := data["PluginsFetched"].(bool)
+	if alreadyFetched {
+		plugins, _ = data["Plugins"].([]PluginInfo)
+	} else {
+		plugins, err = h.fetchPlugins(r)
+		if err != nil {
+			slog.Debug("web: sidebar plugin fetch failed, trying stale cache", "error", err)
+			if cached, ok := h.cache.getAny(); ok {
+				plugins = cached
+			}
 		}
+		data["Plugins"] = plugins
 	}
-	data["Plugins"] = plugins
 	if err != nil && len(plugins) == 0 {
 		data["PluginsUnavailable"] = true
 	}
 
+	// Check if the caller flagged a failed plugin fetch (stale cache data).
+	// This prevents compounding a down API with additional failing calls.
+	fetchFailed, _ := data["PluginsFetchFailed"].(bool)
+
 	// Sidebar: inject node info for hostname + uptime display.
-	// Best-effort — skip when the plugin fetch already failed (avoids a
-	// second timeout that would double page-load latency when API is down).
-	if err == nil {
+	// Guarded so that when the plugin registry fetch is timing out or
+	// failing, we do not compound the problem with an additional
+	// node-info API call from the sidebar. When the API is healthy,
+	// uses a short TTL cache to avoid duplicate /api/v1/node requests
+	// when the dashboard fragment also fetches node info.
+	if err == nil && !fetchFailed {
 		if _, ok := data["SidebarNode"]; !ok {
-			var node NodeInfo
-			if nodeErr := h.client.get(r.Context(), "/api/v1/node", &node); nodeErr == nil {
+			if node, ok := h.nodes.get(); ok {
 				data["SidebarNode"] = node
 				data["SidebarConnected"] = true
+			} else {
+				var node NodeInfo
+				if nodeErr := h.client.get(r.Context(), "/api/v1/node", &node); nodeErr == nil {
+					h.nodes.set(node)
+					data["SidebarNode"] = node
+					data["SidebarConnected"] = true
+				}
 			}
 		}
 	}
