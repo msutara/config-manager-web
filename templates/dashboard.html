@@ -5,7 +5,7 @@
 {{ define "content" }}
 <h2>Dashboard</h2>
 
-<div id="page-data" hx-get="/fragments/dashboard" hx-trigger="load" hx-swap="innerHTML" hx-request='{"timeout":15000}'>
+<div id="page-data" hx-get="/fragments/dashboard" hx-trigger="load, retry" hx-swap="innerHTML" hx-request='{"timeout":15000}'>
     <div class="card-grid">
         <div class="card"><h3>Hostname</h3><div class="skeleton skeleton-text"></div></div>
         <div class="card"><h3>Operating System</h3><div class="skeleton skeleton-text"></div></div>

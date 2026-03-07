@@ -15,6 +15,8 @@ headless Debian-based nodes (Raspbian Bookworm ARM, Debian Bullseye slim).
 - Cookie-based authentication using the same Bearer token as the API
 - Responsive dark theme — works on phones, tablets, and desktops
 - Server-rendered with htmx — no JavaScript build step required
+- **Skeleton loading** — pages render instant skeleton placeholders, then
+  htmx lazy-loads data from fragment endpoints for perceived performance
 - Dynamic plugin sidebar — auto-discovers plugins from the core API registry
 - Sidebar system info — hostname, uptime, and API connection indicator
 
@@ -27,6 +29,12 @@ API calls on every page load. When the TTL expires, the next request refreshes
 the cache from the core API. A **refresh mutex** prevents thundering-herd: if
 multiple requests arrive while the cache is expired, only one goroutine fetches
 from the API while the others wait and then read the refreshed cache.
+
+### Node info caching
+
+The `/api/v1/node` response is cached with a **5-second TTL** to deduplicate
+calls when the sidebar and a fragment endpoint both need node data within the
+same page load cycle. This prevents redundant API traffic on dashboard loads.
 
 ### Sidebar resilience
 

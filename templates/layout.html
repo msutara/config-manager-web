@@ -68,7 +68,7 @@
         }
     })();
     (function(){var u=new URL(location);if(u.searchParams.has("flash")){u.searchParams.delete("flash");history.replaceState(null,"",u)}})();
-    function showPageError(t,msg){if(t&&t.id==="page-data"){t.innerHTML='<div class="alert alert-error">'+msg+' <button class="btn btn-sm" onclick="htmx.trigger(this.closest(\'#page-data\'),\'load\')">Retry</button></div>';}}
+    function showPageError(t,msg){if(t&&t.id==="page-data"){t.innerHTML='<div class="alert alert-error">'+msg+' <button class="btn btn-sm" onclick="htmx.trigger(this.closest(\'#page-data\'),\'retry\')">Retry</button></div>';}}
     document.body.addEventListener("htmx:responseError",function(e){showPageError(e.detail.target,"Failed to load data.");});
     document.body.addEventListener("htmx:timeout",function(e){showPageError(e.detail.target,"Request timed out.");});
     document.body.addEventListener("htmx:sendError",function(e){showPageError(e.detail.target,"Network error.");});

@@ -3,7 +3,7 @@
 {{ define "content" }}
 <h2>{{ .PluginTitle }}</h2>
 
-<div id="page-data" hx-get="/fragments/{{ .PluginName }}" hx-trigger="load" hx-swap="innerHTML" hx-request='{"timeout":15000}'>
+<div id="page-data" hx-get="/fragments/{{ .PluginName }}" hx-trigger="load, retry" hx-swap="innerHTML" hx-request='{"timeout":15000}'>
     <p class="detail skeleton skeleton-text" style="width:60%"></p>
     <div class="card"><div class="skeleton skeleton-card"></div></div>
     <div class="card"><div class="skeleton skeleton-card"></div></div>

@@ -38,6 +38,10 @@ No external file dependencies at runtime.
 | `/update/settings` | POST | Yes | Save update plugin settings (htmx fragment) |
 | `/progress` | GET | Yes | Job progress polling (plugin-agnostic htmx fragment) |
 | `/network` | GET | Yes | Network information page |
+| `/fragments/dashboard` | GET | Yes | Dashboard data fragment (htmx lazy-load) |
+| `/fragments/update` | GET | Yes | Update data fragment (htmx lazy-load) |
+| `/fragments/network` | GET | Yes | Network data fragment (htmx lazy-load) |
+| `/fragments/{plugin}` | GET | Yes | Generic plugin data fragment (htmx lazy-load) |
 | `/{plugin}` | GET | Yes | Generic plugin page (dynamic, regex: `[a-z][a-z0-9-]*`) |
 | `/{plugin}/actions/*` | POST | Yes | Generic plugin action proxy |
 | `/static/*` | GET | No | Embedded static assets |
@@ -61,6 +65,8 @@ No external file dependencies at runtime.
 - SameSite=Strict prevents CSRF
 - Constant-time comparison prevents timing attacks
 - No auth mode for localhost-only development
+- htmx fragment requests receive `HX-Redirect` header (401) instead of 303
+  redirect, preventing login page HTML from being swapped into fragment targets
 
 ## Pages
 
@@ -138,9 +144,25 @@ Data sources:
 
 ## htmx Patterns
 
+### Skeleton Loading (Two-Phase Rendering)
+
+All data pages use a two-phase loading pattern for perceived performance:
+
+1. **Page handler** renders layout (sidebar, nav, toast) + skeleton placeholders
+   instantly. Only `withPlugins()` runs for sidebar data.
+2. **Fragment endpoint** (`/fragments/*`) fetches actual API data and returns
+   standalone HTML via `hx-trigger="load, retry"` + `hx-swap="innerHTML"`.
+
+Each fragment loader includes `hx-request='{"timeout":15000}'` for a 15-second
+timeout. The `retry` trigger enables retry buttons to re-fetch after errors.
+
+Global error handlers in `layout.html` (`htmx:responseError`, `htmx:timeout`,
+`htmx:sendError`) replace skeleton containers with an error message and retry
+button when fragment loads fail.
+
 ### Dynamic Updates
 
-- Uptime refresh: `hx-get="/" hx-trigger="every 30s" hx-select=".uptime-value"`
+- Uptime refresh: `hx-get="/fragments/dashboard" hx-trigger="every 30s" hx-select=".uptime-value"`
 - Update trigger: `hx-post="/update/run" hx-target="#update-result"`
 - Loading indicator: `hx-indicator="#update-spinner"`
 - Confirmation dialogs: `hx-confirm="..."` on destructive action buttons

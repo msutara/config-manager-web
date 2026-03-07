@@ -362,9 +362,16 @@ func (h *Handler) handleDashboard(w http.ResponseWriter, r *http.Request) {
 // handleDashboardFragment returns the dashboard data as an htmx fragment.
 func (h *Handler) handleDashboardFragment(w http.ResponseWriter, r *http.Request) {
 	var node NodeInfo
-	nodeErr := h.client.get(r.Context(), "/api/v1/node", &node)
-	if nodeErr != nil {
-		slog.Error("web: failed to fetch node info", "error", nodeErr)
+	var nodeErr error
+	if cached, ok := h.nodes.get(); ok {
+		node = cached
+	} else {
+		nodeErr = h.client.get(r.Context(), "/api/v1/node", &node)
+		if nodeErr != nil {
+			slog.Error("web: failed to fetch node info", "error", nodeErr)
+		} else {
+			h.nodes.set(node)
+		}
 	}
 
 	data := map[string]any{

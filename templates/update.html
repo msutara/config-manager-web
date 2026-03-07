@@ -5,7 +5,7 @@
 {{ define "content" }}
 <h2>Update Manager</h2>
 
-<div id="page-data" hx-get="/fragments/update" hx-trigger="load" hx-swap="innerHTML" hx-request='{"timeout":15000}'>
+<div id="page-data" hx-get="/fragments/update" hx-trigger="load, retry" hx-swap="innerHTML" hx-request='{"timeout":15000}'>
     <div class="card-grid">
         <div class="card"><h3>Pending Updates</h3><div class="skeleton skeleton-text"></div></div>
         <div class="card"><h3>Security Updates</h3><div class="skeleton skeleton-text"></div></div>

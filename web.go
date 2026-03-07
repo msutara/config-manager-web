@@ -57,6 +57,31 @@ func (c *pluginCache) getAny() ([]PluginInfo, bool) {
 	return nil, false
 }
 
+// nodeCache caches NodeInfo from /api/v1/node with a short TTL to avoid
+// duplicate API calls when both the sidebar and a fragment need node data.
+type nodeCache struct {
+	mu        sync.RWMutex
+	node      *NodeInfo
+	fetchedAt time.Time
+	ttl       time.Duration
+}
+
+func (c *nodeCache) get() (NodeInfo, bool) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	if c.node != nil && time.Since(c.fetchedAt) < c.ttl {
+		return *c.node, true
+	}
+	return NodeInfo{}, false
+}
+
+func (c *nodeCache) set(node NodeInfo) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.node = &node
+	c.fetchedAt = time.Now()
+}
+
 // Handler serves the web UI and proxies actions to the CM JSON API.
 type Handler struct {
 	router    chi.Router
@@ -65,6 +90,7 @@ type Handler struct {
 	templates map[string]*template.Template
 	client    *apiClient
 	cache     pluginCache
+	nodes     nodeCache
 }
 
 // formatUptime converts seconds to a human-readable "Xd Xh Xm" string.
@@ -111,6 +137,7 @@ func NewHandler(apiURL, authToken string) http.Handler {
 		authToken: authToken,
 		client:    newAPIClient(apiURL, authToken),
 		cache:     pluginCache{ttl: 30 * time.Second},
+		nodes:     nodeCache{ttl: 5 * time.Second},
 	}
 
 	funcMap := template.FuncMap{
@@ -296,14 +323,20 @@ func (h *Handler) withPlugins(r *http.Request, data map[string]any) map[string]a
 	}
 
 	// Sidebar: inject node info for hostname + uptime display.
-	// Best-effort — skip when the plugin fetch already failed (avoids a
-	// second timeout that would double page-load latency when API is down).
+	// Uses a short TTL cache to avoid duplicate API calls when the
+	// dashboard fragment also fetches node info.
 	if err == nil {
 		if _, ok := data["SidebarNode"]; !ok {
-			var node NodeInfo
-			if nodeErr := h.client.get(r.Context(), "/api/v1/node", &node); nodeErr == nil {
+			if node, ok := h.nodes.get(); ok {
 				data["SidebarNode"] = node
 				data["SidebarConnected"] = true
+			} else {
+				var node NodeInfo
+				if nodeErr := h.client.get(r.Context(), "/api/v1/node", &node); nodeErr == nil {
+					h.nodes.set(node)
+					data["SidebarNode"] = node
+					data["SidebarConnected"] = true
+				}
 			}
 		}
 	}
