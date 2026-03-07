@@ -213,10 +213,11 @@ func (h *Handler) handleGenericPlugin(w http.ResponseWriter, r *http.Request) {
 	}
 
 	data := map[string]any{
-		"Page":        name,
-		"PluginName":  name,
-		"PluginTitle": titleCase(found.Name),
-		"Plugins":     plugins, // pre-populated; withPlugins will reuse
+		"Page":           name,
+		"PluginName":     name,
+		"PluginTitle":    titleCase(found.Name),
+		"Plugins":        plugins, // pre-populated; withPlugins will reuse
+		"PluginsFetched": true,
 	}
 	if fetchErr != nil {
 		// Signal that plugins came from stale cache so withPlugins

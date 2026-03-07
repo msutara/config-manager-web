@@ -314,9 +314,11 @@ func (h *Handler) withPlugins(r *http.Request, data map[string]any) map[string]a
 	var err error
 
 	// If the caller already fetched plugins (e.g. via lookupPlugin), reuse
-	// them to avoid a duplicate fetchPlugins call.
-	if existing, ok := data["Plugins"].([]PluginInfo); ok && len(existing) > 0 {
-		plugins = existing
+	// them to avoid a duplicate fetchPlugins call.  We check the sentinel
+	// flag rather than slice length so an empty plugin list is also reused.
+	alreadyFetched, _ := data["PluginsFetched"].(bool)
+	if alreadyFetched {
+		plugins, _ = data["Plugins"].([]PluginInfo)
 	} else {
 		plugins, err = h.fetchPlugins(r)
 		if err != nil {
