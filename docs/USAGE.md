@@ -82,9 +82,11 @@ Each interface row includes action buttons for modifying configuration:
 
 | Action | Description |
 | --- | --- |
-| Set Static IP | Opens an inline form to enter IP address, gateway, and netmask for the selected interface |
 | Delete Static IP | Removes the static IP assignment after confirmation |
 | Rollback Interface | Reverts the interface to its previous configuration |
+
+Below the interface table, the **Set Static IP** form allows entering an IP
+address (CIDR), gateway, and netmask for a selected interface:
 
 Global DNS actions appear below the interface table:
 

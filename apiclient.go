@@ -84,7 +84,7 @@ func (e *APIError) Retryable() bool {
 // friendlyAPIError extracts a human-readable message from a raw JSON error
 // body.  If the body is a well-formed error envelope with a message, only the
 // message is returned.  Otherwise it falls back to the full body.
-func friendlyAPIError(method, path string, status int, body []byte) *APIError {
+func friendlyAPIError(status int, body []byte) *APIError {
 	var env apiErrorEnvelope
 	if json.Unmarshal(body, &env) == nil && env.Error.Message != "" {
 		return &APIError{StatusCode: status, Message: env.Error.Message}
@@ -111,9 +111,9 @@ func (c *apiClient) get(ctx context.Context, path string, dst any) error {
 	if resp.StatusCode != http.StatusOK {
 		respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 1024)) //nolint:errcheck // best-effort error detail
 		if loc := resp.Header.Get("Location"); loc != "" && resp.StatusCode >= 300 && resp.StatusCode < 400 {
-			return &APIError{StatusCode: resp.StatusCode, Message: fmt.Sprintf("api %s returned %d redirect to %s: %s", path, resp.StatusCode, loc, respBody)}
+			return &APIError{StatusCode: resp.StatusCode, Message: fmt.Sprintf("api request returned %d redirect to %s: %s", resp.StatusCode, loc, respBody)}
 		}
-		return friendlyAPIError("GET", path, resp.StatusCode, respBody)
+		return friendlyAPIError(resp.StatusCode, respBody)
 	}
 
 	if dst != nil {
@@ -149,9 +149,9 @@ func (c *apiClient) post(ctx context.Context, path string, body io.Reader, dst a
 		resp.StatusCode != http.StatusNoContent {
 		respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 1024)) //nolint:errcheck // best-effort error detail
 		if loc := resp.Header.Get("Location"); loc != "" && resp.StatusCode >= 300 && resp.StatusCode < 400 {
-			return &APIError{StatusCode: resp.StatusCode, Message: fmt.Sprintf("api %s returned %d redirect to %s: %s", path, resp.StatusCode, loc, respBody)}
+			return &APIError{StatusCode: resp.StatusCode, Message: fmt.Sprintf("api request returned %d redirect to %s: %s", resp.StatusCode, loc, respBody)}
 		}
-		return friendlyAPIError("POST", path, resp.StatusCode, respBody)
+		return friendlyAPIError(resp.StatusCode, respBody)
 	}
 
 	if dst != nil && resp.StatusCode != http.StatusNoContent {
@@ -186,9 +186,9 @@ func (c *apiClient) put(ctx context.Context, path string, body io.Reader, dst an
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusNoContent {
 		respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 1024)) //nolint:errcheck // best-effort error detail
 		if loc := resp.Header.Get("Location"); loc != "" && resp.StatusCode >= 300 && resp.StatusCode < 400 {
-			return &APIError{StatusCode: resp.StatusCode, Message: fmt.Sprintf("api %s returned %d redirect to %s: %s", path, resp.StatusCode, loc, respBody)}
+			return &APIError{StatusCode: resp.StatusCode, Message: fmt.Sprintf("api request returned %d redirect to %s: %s", resp.StatusCode, loc, respBody)}
 		}
-		return friendlyAPIError("PUT", path, resp.StatusCode, respBody)
+		return friendlyAPIError(resp.StatusCode, respBody)
 	}
 
 	if dst != nil && resp.StatusCode != http.StatusNoContent {
@@ -229,7 +229,10 @@ func (c *apiClient) doRequest(ctx context.Context, method, path string, body io.
 		(method == http.MethodPost && resp.StatusCode == http.StatusAccepted)
 	if !ok {
 		respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 1024)) //nolint:errcheck // best-effort error detail
-		return friendlyAPIError(method, path, resp.StatusCode, respBody)
+		if loc := resp.Header.Get("Location"); loc != "" && resp.StatusCode >= 300 && resp.StatusCode < 400 {
+			return &APIError{StatusCode: resp.StatusCode, Message: fmt.Sprintf("api request returned %d redirect to %s: %s", resp.StatusCode, loc, respBody)}
+		}
+		return friendlyAPIError(resp.StatusCode, respBody)
 	}
 
 	if dst != nil && resp.StatusCode != http.StatusNoContent {

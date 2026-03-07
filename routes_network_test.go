@@ -341,11 +341,28 @@ func networkErrorAPI(t *testing.T) *httptest.Server {
 // ---------- handleNetworkSetStaticIP ----------
 
 func TestNetworkSetStaticIP_ValidRequest(t *testing.T) {
-	api := networkMockAPI(t)
+	var capturedBody []byte
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/v1/plugins", func(w http.ResponseWriter, _ *http.Request) {
+		json.NewEncoder(w).Encode([]PluginInfo{
+			{Name: "network", Version: "0.1.0", RoutePrefix: "/api/v1/plugins/network"},
+		})
+	})
+	mux.HandleFunc("/api/v1/node", func(w http.ResponseWriter, _ *http.Request) {
+		json.NewEncoder(w).Encode(NodeInfo{Hostname: "test-node"})
+	})
+	mux.HandleFunc("/api/v1/plugins/network/interfaces/", func(w http.ResponseWriter, r *http.Request) {
+		capturedBody, _ = io.ReadAll(r.Body)
+		json.NewEncoder(w).Encode(NetworkWriteResult{
+			Valid:   true,
+			Message: "static IP applied",
+		})
+	})
+	api := httptest.NewServer(mux)
 	defer api.Close()
 
 	h := newTestHandler(t, api.URL, "")
-	form := "name=eth0&address=10.0.0.5%2F24&gateway=10.0.0.1"
+	form := "name=eth0&address=10.0.0.5%2F24&gateway=10.0.0.1&netmask=255.255.255.0"
 	req := httptest.NewRequest(http.MethodPost, "/network/set-static-ip", strings.NewReader(form))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	w := httptest.NewRecorder()
@@ -360,6 +377,18 @@ func TestNetworkSetStaticIP_ValidRequest(t *testing.T) {
 	}
 	if body := w.Body.String(); body != "" {
 		t.Errorf("expected empty body on redirect, got %q", body)
+	}
+
+	// CMW-02: Verify the outbound JSON payload includes the netmask field.
+	if len(capturedBody) == 0 {
+		t.Fatal("expected API to receive a request body, got nothing")
+	}
+	var payload map[string]string
+	if err := json.Unmarshal(capturedBody, &payload); err != nil {
+		t.Fatalf("failed to decode API request body: %v", err)
+	}
+	if payload["netmask"] != "255.255.255.0" {
+		t.Errorf("netmask in API payload = %q, want %q", payload["netmask"], "255.255.255.0")
 	}
 }
 
@@ -417,12 +446,47 @@ func TestNetworkSetStaticIP_MissingAddress(t *testing.T) {
 	}
 }
 
+func TestNetworkSetStaticIP_MissingNetmask(t *testing.T) {
+	var apiCalled bool
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/v1/plugins", func(w http.ResponseWriter, _ *http.Request) {
+		json.NewEncoder(w).Encode([]PluginInfo{})
+	})
+	mux.HandleFunc("/api/v1/node", func(w http.ResponseWriter, _ *http.Request) {
+		json.NewEncoder(w).Encode(NodeInfo{Hostname: "test-node"})
+	})
+	mux.HandleFunc("/", func(w http.ResponseWriter, _ *http.Request) {
+		apiCalled = true
+		w.WriteHeader(http.StatusOK)
+	})
+	api := httptest.NewServer(mux)
+	defer api.Close()
+
+	h := newTestHandler(t, api.URL, "")
+	form := "name=eth0&address=10.0.0.5%2F24&gateway=10.0.0.1"
+	req := httptest.NewRequest(http.MethodPost, "/network/set-static-ip", strings.NewReader(form))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	body := w.Body.String()
+	if !strings.Contains(body, "Netmask is required") {
+		t.Errorf("expected 'Netmask is required' error, got: %s", body)
+	}
+	if !strings.Contains(body, "hx-swap-oob") {
+		t.Error("expected OOB toast error in response")
+	}
+	if apiCalled {
+		t.Error("API should not be called when netmask is missing")
+	}
+}
+
 func TestNetworkSetStaticIP_APIError(t *testing.T) {
 	api := networkErrorAPI(t)
 	defer api.Close()
 
 	h := newTestHandler(t, api.URL, "")
-	form := "name=eth0&address=10.0.0.5%2F24"
+	form := "name=eth0&address=10.0.0.5%2F24&netmask=255.255.255.0"
 	req := httptest.NewRequest(http.MethodPost, "/network/set-static-ip", strings.NewReader(form))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	w := httptest.NewRecorder()
@@ -459,7 +523,7 @@ func TestNetworkSetStaticIP_XSSEscaped(t *testing.T) {
 	defer api.Close()
 
 	h := newTestHandler(t, api.URL, "")
-	form := "name=eth0&address=10.0.0.5%2F24"
+	form := "name=eth0&address=10.0.0.5%2F24&netmask=255.255.255.0"
 	req := httptest.NewRequest(http.MethodPost, "/network/set-static-ip", strings.NewReader(form))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	w := httptest.NewRecorder()
@@ -743,7 +807,9 @@ func TestValidIfaceName(t *testing.T) {
 		{"slash", "eth0/1", false},
 		{"null byte", "eth0\x00bad", false},
 		{"unicode", "ethö", false},
-		{"long name", strings.Repeat("a", 256), true}, // regex doesn't limit length
+		{"long name", strings.Repeat("a", 256), false}, // Linux IFNAMSIZ-1 = 15 chars max
+		{"exactly 15 chars", strings.Repeat("a", 15), true},
+		{"16 chars too long", strings.Repeat("a", 16), false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -781,6 +847,9 @@ func TestNetworkHandlers_OversizedBody(t *testing.T) {
 			h.ServeHTTP(w, req)
 
 			body := w.Body.String()
+			if w.Code != http.StatusOK {
+				t.Errorf("expected status 200 for htmx error rendering, got %d", w.Code)
+			}
 			if !strings.Contains(body, "Request too large") {
 				t.Errorf("expected 'Request too large', got: %s", body)
 			}
@@ -797,7 +866,7 @@ func TestWriteNetworkError_GenericError(t *testing.T) {
 	// Point the handler at an unreachable API so the HTTP client returns a
 	// generic (non-*APIError) error such as "connection refused".
 	h := newTestHandler(t, "http://localhost:1", "")
-	form := "name=eth0&address=10.0.0.1%2F24"
+	form := "name=eth0&address=10.0.0.1%2F24&netmask=255.255.255.0"
 	req := httptest.NewRequest(http.MethodPost, "/network/set-static-ip", strings.NewReader(form))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	w := httptest.NewRecorder()

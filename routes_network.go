@@ -13,7 +13,8 @@ import (
 )
 
 // validIfaceName matches safe interface names (alphanumeric, hyphens, dots, colons for aliases).
-var validIfaceName = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9._:-]*$`)
+// Linux limits interface names to 15 characters (IFNAMSIZ-1).
+var validIfaceName = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9._:-]{0,14}$`)
 
 // maxFormBytes limits POST body size for form-based handlers.
 const maxFormBytes = 1 << 20 // 1 MB
@@ -27,7 +28,8 @@ var errFormTooLarge = errors.New("request body too large")
 func parseFormLimited(w http.ResponseWriter, r *http.Request) error {
 	r.Body = http.MaxBytesReader(w, r.Body, maxFormBytes)
 	if err := r.ParseForm(); err != nil {
-		if err.Error() == "http: request body too large" {
+		var maxErr *http.MaxBytesError
+		if errors.As(err, &maxErr) {
 			return errFormTooLarge
 		}
 		return fmt.Errorf("invalid form data: %w", err)
@@ -36,7 +38,7 @@ func parseFormLimited(w http.ResponseWriter, r *http.Request) error {
 }
 
 // writeNetworkError writes an inline error alert with details and an OOB toast.
-// The toast shows a generic title; error details are only in the expandable block.
+// The toast mirrors the operation title; error details are only in the expandable block.
 // If the error is an *APIError, only the message (not the internal path) is shown.
 func (h *Handler) writeNetworkError(w http.ResponseWriter, title string, err error) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
@@ -48,7 +50,7 @@ func (h *Handler) writeNetworkError(w http.ResponseWriter, title string, err err
 		html.EscapeString(title) + `</strong>` +
 		`<details class="error-details"><summary>Show details</summary>` +
 		`<pre>` + safeErr + `</pre></details></div>` +
-		toastOOB("error", html.EscapeString(title))))
+		toastOOB("error", title)))
 }
 
 // writeFormError writes an inline alert for parseFormLimited failures.
@@ -72,6 +74,7 @@ func (h *Handler) handleNetworkSetStaticIP(w http.ResponseWriter, r *http.Reques
 	name := r.FormValue("name")
 	address := r.FormValue("address")
 	gateway := r.FormValue("gateway")
+	netmask := r.FormValue("netmask")
 
 	// Validate inputs.
 	if name == "" || !validIfaceName.MatchString(name) {
@@ -86,10 +89,17 @@ func (h *Handler) handleNetworkSetStaticIP(w http.ResponseWriter, r *http.Reques
 		_, _ = w.Write([]byte(msg)) //nolint:errcheck // HTTP write
 		return
 	}
+	if netmask == "" {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		msg := `<div class="alert alert-error">Netmask is required (e.g. 255.255.255.0)</div>` + toastOOB("error", "Netmask is required")
+		_, _ = w.Write([]byte(msg)) //nolint:errcheck // HTTP write
+		return
+	}
 
 	payload, err := json.Marshal(map[string]string{
 		"address": address,
 		"gateway": gateway,
+		"netmask": netmask,
 	})
 	if err != nil {
 		slog.Error("web: failed to marshal static IP request", "error", err)

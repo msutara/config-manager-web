@@ -2687,7 +2687,7 @@ func TestUpdateSettings_ValidationStatusCodes(t *testing.T) {
 
 func TestFriendlyAPIError_EnvelopeExtracted(t *testing.T) {
 	body := []byte(`{"error":{"code":"job_not_found","message":"Job 'update.security' not found","details":{}}}`)
-	err := friendlyAPIError("GET", "/test", 404, body)
+	err := friendlyAPIError(404, body)
 	if err == nil {
 		t.Fatal("expected error")
 	}
@@ -2699,7 +2699,7 @@ func TestFriendlyAPIError_EnvelopeExtracted(t *testing.T) {
 
 func TestFriendlyAPIError_PlainBodyFallback(t *testing.T) {
 	body := []byte(`not json`)
-	err := friendlyAPIError("GET", "/test", 500, body)
+	err := friendlyAPIError(500, body)
 	if !strings.Contains(err.Error(), "not json") {
 		t.Errorf("expected raw body in fallback, got %q", err.Error())
 	}
@@ -2707,7 +2707,7 @@ func TestFriendlyAPIError_PlainBodyFallback(t *testing.T) {
 
 func TestFriendlyAPIError_EmptyMessage(t *testing.T) {
 	body := []byte(`{"error":{"code":"unknown","message":""}}`)
-	err := friendlyAPIError("GET", "/test", 500, body)
+	err := friendlyAPIError(500, body)
 	// Empty message → fallback to full body
 	if !strings.Contains(err.Error(), "unknown") {
 		t.Errorf("expected fallback with body, got %q", err.Error())
