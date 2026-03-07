@@ -1,5 +1,5 @@
 {{ if .NodeErr }}
-<div class="alert alert-error">Failed to load system info: {{ .NodeErr }}</div>
+<div class="alert alert-error">Failed to load system info: {{ .NodeErr }} <button class="btn btn-sm" onclick="htmx.trigger(document.getElementById('page-data'),'load')">Retry</button></div>
 {{ else }}
 <div class="card-grid">
     <div class="card">
@@ -18,7 +18,7 @@
         <h3>Architecture</h3>
         <p class="value">{{ .Node.Arch }}</p>
     </div>
-    <div class="card" hx-get="/fragments/dashboard" hx-trigger="every 30s" hx-select=".uptime-value" hx-target=".uptime-value" hx-swap="outerHTML">
+    <div class="card" hx-get="/fragments/dashboard" hx-trigger="every 30s" hx-select=".uptime-value" hx-target=".uptime-value" hx-swap="outerHTML" hx-request='{"timeout":15000}'>
         <h3>Uptime</h3>
         <p class="value uptime-value">{{ formatUptime .Node.UptimeSeconds }}</p>
     </div>
