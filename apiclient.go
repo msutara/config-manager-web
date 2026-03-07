@@ -84,12 +84,12 @@ func (e *APIError) Retryable() bool {
 // friendlyAPIError extracts a human-readable message from a raw JSON error
 // body.  If the body is a well-formed error envelope with a message, only the
 // message is returned.  Otherwise it falls back to the full body.
-func friendlyAPIError(method, path string, status int, body []byte) *APIError {
+func friendlyAPIError(status int, body []byte) *APIError {
 	var env apiErrorEnvelope
 	if json.Unmarshal(body, &env) == nil && env.Error.Message != "" {
 		return &APIError{StatusCode: status, Message: env.Error.Message}
 	}
-	return &APIError{StatusCode: status, Message: fmt.Sprintf("api %s returned %d: %s", path, status, body)}
+	return &APIError{StatusCode: status, Message: fmt.Sprintf("api returned %d: %s", status, body)}
 }
 
 // get performs an authenticated GET and decodes JSON into dst.
@@ -111,9 +111,9 @@ func (c *apiClient) get(ctx context.Context, path string, dst any) error {
 	if resp.StatusCode != http.StatusOK {
 		respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 1024)) //nolint:errcheck // best-effort error detail
 		if loc := resp.Header.Get("Location"); loc != "" && resp.StatusCode >= 300 && resp.StatusCode < 400 {
-			return &APIError{StatusCode: resp.StatusCode, Message: fmt.Sprintf("api %s returned %d redirect to %s: %s", path, resp.StatusCode, loc, respBody)}
+			return &APIError{StatusCode: resp.StatusCode, Message: fmt.Sprintf("api request returned %d redirect to %s: %s", resp.StatusCode, loc, respBody)}
 		}
-		return friendlyAPIError("GET", path, resp.StatusCode, respBody)
+		return friendlyAPIError(resp.StatusCode, respBody)
 	}
 
 	if dst != nil {
@@ -149,9 +149,9 @@ func (c *apiClient) post(ctx context.Context, path string, body io.Reader, dst a
 		resp.StatusCode != http.StatusNoContent {
 		respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 1024)) //nolint:errcheck // best-effort error detail
 		if loc := resp.Header.Get("Location"); loc != "" && resp.StatusCode >= 300 && resp.StatusCode < 400 {
-			return &APIError{StatusCode: resp.StatusCode, Message: fmt.Sprintf("api %s returned %d redirect to %s: %s", path, resp.StatusCode, loc, respBody)}
+			return &APIError{StatusCode: resp.StatusCode, Message: fmt.Sprintf("api request returned %d redirect to %s: %s", resp.StatusCode, loc, respBody)}
 		}
-		return friendlyAPIError("POST", path, resp.StatusCode, respBody)
+		return friendlyAPIError(resp.StatusCode, respBody)
 	}
 
 	if dst != nil && resp.StatusCode != http.StatusNoContent {
@@ -186,9 +186,9 @@ func (c *apiClient) put(ctx context.Context, path string, body io.Reader, dst an
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusNoContent {
 		respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 1024)) //nolint:errcheck // best-effort error detail
 		if loc := resp.Header.Get("Location"); loc != "" && resp.StatusCode >= 300 && resp.StatusCode < 400 {
-			return &APIError{StatusCode: resp.StatusCode, Message: fmt.Sprintf("api %s returned %d redirect to %s: %s", path, resp.StatusCode, loc, respBody)}
+			return &APIError{StatusCode: resp.StatusCode, Message: fmt.Sprintf("api request returned %d redirect to %s: %s", resp.StatusCode, loc, respBody)}
 		}
-		return friendlyAPIError("PUT", path, resp.StatusCode, respBody)
+		return friendlyAPIError(resp.StatusCode, respBody)
 	}
 
 	if dst != nil && resp.StatusCode != http.StatusNoContent {
@@ -198,6 +198,67 @@ func (c *apiClient) put(ctx context.Context, path string, body io.Reader, dst an
 	}
 
 	return nil
+}
+
+// doRequest executes an HTTP request with standard error handling and JSON decoding.
+// Optional request modifiers (opts) allow callers to set additional headers.
+func (c *apiClient) doRequest(ctx context.Context, method, path string, body io.Reader, dst any, opts ...func(*http.Request)) error {
+	req, err := http.NewRequestWithContext(ctx, method, c.baseURL+path, body)
+	if err != nil {
+		return fmt.Errorf("build request: %w", err)
+	}
+	if body != nil {
+		req.Header.Set("Content-Type", "application/json")
+	}
+	if c.token != "" {
+		req.Header.Set("Authorization", "Bearer "+c.token)
+	}
+	for _, opt := range opts {
+		opt(req)
+	}
+
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return fmt.Errorf("api request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	// Accept 200, 204 for all methods; additionally 202 for POST.
+	ok := resp.StatusCode == http.StatusOK ||
+		resp.StatusCode == http.StatusNoContent ||
+		(method == http.MethodPost && resp.StatusCode == http.StatusAccepted)
+	if !ok {
+		respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 1024)) //nolint:errcheck // best-effort error detail
+		if loc := resp.Header.Get("Location"); loc != "" && resp.StatusCode >= 300 && resp.StatusCode < 400 {
+			return &APIError{StatusCode: resp.StatusCode, Message: fmt.Sprintf("api request returned %d redirect to %s: %s", resp.StatusCode, loc, respBody)}
+		}
+		return friendlyAPIError(resp.StatusCode, respBody)
+	}
+
+	if dst != nil && resp.StatusCode != http.StatusNoContent {
+		if err := decodeJSON(resp.Body, dst); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// withConfirm sets the X-Confirm header on a request.
+func withConfirm(req *http.Request) { req.Header.Set("X-Confirm", "true") }
+
+// putConfirm performs a PUT with X-Confirm: true header.
+func (c *apiClient) putConfirm(ctx context.Context, path string, body io.Reader, dst any) error {
+	return c.doRequest(ctx, http.MethodPut, path, body, dst, withConfirm)
+}
+
+// deleteConfirm performs a DELETE with X-Confirm: true header.
+func (c *apiClient) deleteConfirm(ctx context.Context, path string, dst any) error {
+	return c.doRequest(ctx, http.MethodDelete, path, nil, dst, withConfirm)
+}
+
+// postConfirm performs a POST with X-Confirm: true header (no body).
+func (c *apiClient) postConfirm(ctx context.Context, path string, dst any) error {
+	return c.doRequest(ctx, http.MethodPost, path, nil, dst, withConfirm)
 }
 
 // ---------- Plugin settings ----------
@@ -324,4 +385,13 @@ type NetworkStatus struct {
 type DNSConfig struct {
 	Nameservers []string `json:"nameservers"`
 	Search      []string `json:"search,omitempty"`
+}
+
+// NetworkWriteResult is the response from network write operations.
+type NetworkWriteResult struct {
+	Valid    bool           `json:"valid,omitempty"`
+	Changes  []string       `json:"changes,omitempty"`
+	Current  map[string]any `json:"current,omitempty"`
+	Proposed map[string]any `json:"proposed,omitempty"`
+	Message  string         `json:"message,omitempty"`
 }

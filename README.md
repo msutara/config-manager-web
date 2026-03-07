@@ -12,6 +12,8 @@ headless Debian-based nodes (Raspbian Bookworm ARM, Debian Bullseye slim).
 - **Job progress polling** — after triggering long-running jobs, shows
   real-time status with auto-polling until completion or failure
 - Network info — interfaces, connectivity status, DNS configuration
+- **Network management** — set static IP, set DNS servers, delete static IP,
+  rollback interface, rollback DNS with confirmation dialogs
 - Cookie-based authentication using the same Bearer token as the API
 - Responsive dark theme — works on phones, tablets, and desktops
 - Server-rendered with htmx — no JavaScript build step required
@@ -58,6 +60,14 @@ Every API response is capped at **2 MB** before JSON decoding
 (`maxResponseBytes` in `apiclient.go`). This prevents unbounded memory
 allocation on ARM devices with limited RAM. Oversized responses return a
 descriptive error; the constant is a single-line change if it needs tuning.
+
+### Request body limit
+
+All POST handlers for network write operations use `MaxBytesReader` to cap
+incoming form data at **1 MB** (`maxFormBytes` in `routes_network.go`). This
+prevents oversized submissions from consuming memory on resource-constrained
+ARM devices. Requests exceeding the limit receive an inline error with a toast
+notification.
 
 ### RoutePrefix validation
 

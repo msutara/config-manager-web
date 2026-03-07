@@ -25,6 +25,8 @@
 
 <h3>Interfaces</h3>
 
+<div id="network-result"></div>
+
 {{ if .IfaceErr }}
 <div class="alert alert-error">Failed to load interfaces: {{ .IfaceErr }}</div>
 {{ else if .Ifaces }}
@@ -35,6 +37,7 @@
             <th>MAC</th>
             <th>State</th>
             <th>IP</th>
+            <th>Actions</th>
         </tr>
     </thead>
     <tbody>
@@ -44,6 +47,26 @@
             <td>{{ .MAC }}</td>
             <td><span class="badge badge-{{ .State }}">{{ .State }}</span></td>
             <td>{{ .IP }}</td>
+            <td class="actions">
+                <button class="btn btn-sm"
+                        hx-post="/network/delete-static-ip"
+                        hx-vals='{"name":"{{ .Name }}"}'
+                        hx-target="#network-result"
+                        hx-swap="innerHTML"
+                        hx-indicator="#network-spinner"
+                        hx-confirm="Remove static IP for {{ .Name }}? Interface will revert to DHCP.">
+                    Remove Static IP
+                </button>
+                <button class="btn btn-sm btn-secondary"
+                        hx-post="/network/rollback-interface"
+                        hx-vals='{"name":"{{ .Name }}"}'
+                        hx-target="#network-result"
+                        hx-swap="innerHTML"
+                        hx-indicator="#network-spinner"
+                        hx-confirm="Rollback {{ .Name }} to previous configuration?">
+                    Rollback
+                </button>
+            </td>
         </tr>
         {{ end }}
     </tbody>
@@ -51,6 +74,54 @@
 {{ else }}
 <p>No interfaces found.</p>
 {{ end }}
+
+<span id="network-spinner" class="spinner"></span>
+
+{{ if not .IfaceErr }}
+{{ if .Ifaces }}
+<h3>Set Static IP</h3>
+
+<div class="card">
+    <form hx-post="/network/set-static-ip"
+          hx-target="#network-result"
+          hx-swap="innerHTML"
+          hx-indicator="#network-spinner">
+        <div class="form-group">
+            <label for="iface-name">Interface</label>
+            <select id="iface-name" name="name" class="form-input" required>
+                {{ range .Ifaces }}
+                <option value="{{ .Name }}">{{ .Name }} ({{ .IP }})</option>
+                {{ end }}
+            </select>
+        </div>
+        <div class="form-group">
+            <label for="address">Address (CIDR)</label>
+            <input type="text" id="address" name="address"
+                   placeholder="e.g. 192.168.1.10/24"
+                   class="form-input" required>
+        </div>
+        <div class="form-group">
+            <label for="gateway">Gateway (optional)</label>
+            <input type="text" id="gateway" name="gateway"
+                   placeholder="e.g. 192.168.1.1"
+                   class="form-input">
+        </div>
+        <div class="form-group">
+            <label for="netmask">Netmask</label>
+            <input type="text" id="netmask" name="netmask"
+                   placeholder="e.g. 255.255.255.0"
+                   class="form-input" required>
+        </div>
+        <div class="actions">
+            <button type="submit" class="btn btn-primary"
+                    hx-confirm="Apply static IP configuration?">
+                Apply Static IP
+            </button>
+        </div>
+    </form>
+</div>
+{{ end }}{{/* .Ifaces */}}
+{{ end }}{{/* not .IfaceErr */}}
 
 {{ if not .DNSErr }}
 <h3>DNS Configuration</h3>
@@ -67,5 +138,46 @@
         </tr>
         {{ end }}
     </table>
+</div>
+
+<h3>Set DNS Servers</h3>
+
+<div class="card">
+    <form hx-post="/network/set-dns"
+          hx-target="#network-result"
+          hx-swap="innerHTML"
+          hx-indicator="#network-spinner">
+        <div class="form-group">
+            <label for="nameservers">Nameservers (comma-separated)</label>
+            <input type="text" id="nameservers" name="nameservers"
+                   value="{{ range $i, $ns := .DNS.Nameservers }}{{ if $i }}, {{ end }}{{ $ns }}{{ end }}"
+                   placeholder="e.g. 8.8.8.8, 1.1.1.1"
+                   class="form-input" required>
+        </div>
+        <div class="form-group">
+            <label for="search">Search Domains (optional, comma-separated)</label>
+            <input type="text" id="search" name="search"
+                   value="{{ range $i, $s := .DNS.Search }}{{ if $i }}, {{ end }}{{ $s }}{{ end }}"
+                   placeholder="e.g. home.lan, local"
+                   class="form-input">
+        </div>
+        <div class="actions">
+            <button type="submit" class="btn btn-primary"
+                    hx-confirm="Apply DNS configuration?">
+                Apply DNS Settings
+            </button>
+        </div>
+    </form>
+</div>
+
+<div class="actions">
+    <button class="btn btn-secondary"
+            hx-post="/network/rollback-dns"
+            hx-target="#network-result"
+            hx-swap="innerHTML"
+            hx-indicator="#network-spinner"
+            hx-confirm="Rollback DNS to previous configuration?">
+        Rollback DNS
+    </button>
 </div>
 {{ end }}
