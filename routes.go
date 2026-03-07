@@ -50,6 +50,9 @@ var flashToast = map[string]*Toast{
 	"settings-saved":   {Level: "success", Message: "Settings saved successfully"},
 	"settings-partial": {Level: "warning", Message: "Settings saved with warnings"},
 	"action-ok":        {Level: "success", Message: "Action completed successfully"},
+	"network-applied":  {Level: "success", Message: "Network configuration applied"},
+	"network-deleted":  {Level: "success", Message: "Static IP removed, reverted to DHCP"},
+	"network-rollback": {Level: "success", Message: "Configuration rolled back"},
 }
 
 // parseFlashToast returns a Toast if the request contains a recognised flash param.

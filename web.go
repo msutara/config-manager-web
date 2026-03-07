@@ -219,6 +219,13 @@ func NewHandler(apiURL, authToken string) http.Handler {
 		// Network plugin (custom handler for richer UX).
 		r.Get("/network", h.handleNetwork)
 
+		// Network plugin write operations.
+		r.Post("/network/set-static-ip", h.handleNetworkSetStaticIP)
+		r.Post("/network/set-dns", h.handleNetworkSetDNS)
+		r.Post("/network/delete-static-ip", h.handleNetworkDeleteStaticIP)
+		r.Post("/network/rollback-interface", h.handleNetworkRollbackInterface)
+		r.Post("/network/rollback-dns", h.handleNetworkRollbackDNS)
+
 		// Data fragments for skeleton lazy-loading (htmx hx-trigger="load").
 		r.Get("/fragments/dashboard", h.handleDashboardFragment)
 		r.Get("/fragments/update", h.handleUpdateFragment)

@@ -69,12 +69,34 @@ Success, error, and warning messages appear inline above the form.
 
 #### Network
 
-View network interface and connectivity information:
+View and manage network interface and connectivity information:
 
 - **Connectivity** — online/offline status
 - **DNS** — whether DNS resolution is working
 - **Interfaces** — table of network interfaces with state, address, gateway
 - **DNS Servers** — configured nameservers and search domains
+
+##### Network Write Operations
+
+Each interface row includes action buttons for modifying configuration:
+
+| Action | Description |
+| --- | --- |
+| Set Static IP | Opens an inline form to enter IP address, gateway, and netmask for the selected interface |
+| Delete Static IP | Removes the static IP assignment after confirmation |
+| Rollback Interface | Reverts the interface to its previous configuration |
+
+Global DNS actions appear below the interface table:
+
+| Action | Description |
+| --- | --- |
+| Set DNS | Form to set comma-separated nameservers and search domains |
+| Rollback DNS | Reverts DNS settings to the previous configuration |
+
+All write operations require confirmation (htmx `hx-confirm` dialog). On
+success, the page redirects with a toast notification. On error, an inline
+alert with expandable details and an out-of-band toast appear. Request bodies
+are limited to 1 MB via `MaxBytesReader` to protect low-memory ARM devices.
 
 #### Generic Plugin Pages
 
