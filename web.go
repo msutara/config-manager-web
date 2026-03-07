@@ -147,6 +147,11 @@ func NewHandler(apiURL, authToken string) http.Handler {
 	// Progress is a standalone HTMX fragment (no layout).
 	h.templates["progress.html"] = template.Must(
 		template.New("progress").Funcs(funcMap).Parse(string(mustRead("progress.html"))))
+	// Data fragment templates — standalone htmx fragments for lazy loading.
+	for _, frag := range []string{"frag-dashboard.html", "frag-update.html", "frag-network.html", "frag-plugin.html"} {
+		h.templates[frag] = template.Must(
+			template.New(frag).Funcs(funcMap).Parse(string(mustRead(frag))))
+	}
 
 	h.router = chi.NewRouter()
 
@@ -186,6 +191,12 @@ func NewHandler(apiURL, authToken string) http.Handler {
 
 		// Network plugin (custom handler for richer UX).
 		r.Get("/network", h.handleNetwork)
+
+		// Data fragments for skeleton lazy-loading (htmx hx-trigger="load").
+		r.Get("/fragments/dashboard", h.handleDashboardFragment)
+		r.Get("/fragments/update", h.handleUpdateFragment)
+		r.Get("/fragments/network", h.handleNetworkFragment)
+		r.Get("/fragments/{plugin:[a-z][a-z0-9-]*}", h.handlePluginFragment)
 	})
 
 	return h

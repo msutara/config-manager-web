@@ -57,6 +57,25 @@ func parseFlashToast(r *http.Request) *Toast {
 	return flashToast[r.URL.Query().Get("flash")]
 }
 
+// renderFragment executes a standalone fragment template (no layout wrapper)
+// and writes the HTML result. Used by lazy-loading fragment endpoints.
+func (h *Handler) renderFragment(w http.ResponseWriter, name string, data any) {
+	t, ok := h.templates[name]
+	if !ok {
+		slog.Error("fragment template not found", "template", name)
+		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		return
+	}
+	var buf bytes.Buffer
+	if err := t.Execute(&buf, data); err != nil {
+		slog.Error("fragment render error", "template", name, "error", err)
+		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	_, _ = w.Write(buf.Bytes()) //nolint:errcheck // HTTP response write
+}
+
 // ---------- Generic plugin handlers ----------
 
 // maxConcurrentAPICalls limits goroutines spawned per request when fetching
@@ -169,13 +188,38 @@ func (h *Handler) lookupPlugin(r *http.Request, name string) (*PluginInfo, []Plu
 	return nil, plugins, nil
 }
 
-// handleGenericPlugin renders a generic page for plugins without a custom
-// template. It fetches all GET endpoints concurrently and lists POST
-// endpoints as server-proxied action buttons.
+// handleGenericPlugin renders a generic page with skeleton placeholders.
+// Actual data loads asynchronously via the /fragments/{plugin} endpoint.
 func (h *Handler) handleGenericPlugin(w http.ResponseWriter, r *http.Request) {
 	name := chi.URLParam(r, "plugin")
 
-	found, plugins, err := h.lookupPlugin(r, name)
+	found, _, err := h.lookupPlugin(r, name)
+	if err != nil {
+		slog.Error("web: plugin registry unavailable", "error", err)
+		http.Error(w, "Plugin registry unavailable", http.StatusBadGateway)
+		return
+	}
+	if found == nil {
+		http.NotFound(w, r)
+		return
+	}
+
+	data := map[string]any{
+		"Page":        name,
+		"PluginName":  name,
+		"PluginTitle": titleCase(found.Name),
+	}
+	if t := parseFlashToast(r); t != nil {
+		data["Toast"] = t
+	}
+	h.render(w, "plugin.html", h.withPlugins(r, data))
+}
+
+// handlePluginFragment returns the generic plugin data as an htmx fragment.
+func (h *Handler) handlePluginFragment(w http.ResponseWriter, r *http.Request) {
+	name := chi.URLParam(r, "plugin")
+
+	found, _, err := h.lookupPlugin(r, name)
 	if err != nil {
 		slog.Error("web: plugin registry unavailable", "error", err)
 		http.Error(w, "Plugin registry unavailable", http.StatusBadGateway)
@@ -195,11 +239,8 @@ func (h *Handler) handleGenericPlugin(w http.ResponseWriter, r *http.Request) {
 			getEndpoints = append(getEndpoints, ep)
 		case http.MethodPost:
 			if ep.Path == "" {
-				continue // skip empty-path endpoints
+				continue
 			}
-			// Validate POST paths against traversal before exposing in template
-			// URLs — the browser normalises /../ before sending, which could
-			// redirect the request to an unintended route.
 			if cleanPluginPath(found.RoutePrefix, ep.Path) == "" {
 				continue
 			}
@@ -214,8 +255,7 @@ func (h *Handler) handleGenericPlugin(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Fetch all GET endpoints concurrently with a semaphore to bound
-	// the number of in-flight API calls per request.
+	// Fetch all GET endpoints concurrently with a semaphore.
 	results := make([]EndpointData, len(getEndpoints))
 	sem := make(chan struct{}, maxConcurrentAPICalls)
 	var wg sync.WaitGroup
@@ -237,8 +277,6 @@ func (h *Handler) handleGenericPlugin(w http.ResponseWriter, r *http.Request) {
 				results[idx].Error = fmt.Sprintf("Failed to fetch: %s", err)
 				return
 			}
-			// Pretty-print JSON for display. raw was decoded as JSON,
-			// so Indent errors are unexpected but handled defensively.
 			var buf bytes.Buffer
 			if err := json.Indent(&buf, raw, "", "  "); err != nil {
 				slog.Error("web: failed to pretty-print plugin JSON",
@@ -252,17 +290,12 @@ func (h *Handler) handleGenericPlugin(w http.ResponseWriter, r *http.Request) {
 	wg.Wait()
 
 	data := map[string]any{
-		"Page":         name,
-		"Plugins":      plugins,
 		"Plugin":       found,
 		"EndpointData": results,
 		"Actions":      actions,
 		"PluginName":   name,
 	}
-	if t := parseFlashToast(r); t != nil {
-		data["Toast"] = t
-	}
-	h.render(w, "plugin.html", data)
+	h.renderFragment(w, "frag-plugin.html", data)
 }
 
 // handleGenericAction proxies POST actions through the web server so the
@@ -316,9 +349,18 @@ func (h *Handler) handleGenericAction(w http.ResponseWriter, r *http.Request) {
 
 // ---------- Dashboard ----------
 
-// handleDashboard renders the main dashboard with system info.
-// Only one API call — no semaphore needed.
+// handleDashboard renders the dashboard page with skeleton placeholders.
+// Actual data loads asynchronously via the /fragments/dashboard endpoint.
 func (h *Handler) handleDashboard(w http.ResponseWriter, r *http.Request) {
+	data := map[string]any{"Page": "dashboard"}
+	if t := parseFlashToast(r); t != nil {
+		data["Toast"] = t
+	}
+	h.render(w, "dashboard.html", h.withPlugins(r, data))
+}
+
+// handleDashboardFragment returns the dashboard data as an htmx fragment.
+func (h *Handler) handleDashboardFragment(w http.ResponseWriter, r *http.Request) {
 	var node NodeInfo
 	nodeErr := h.client.get(r.Context(), "/api/v1/node", &node)
 	if nodeErr != nil {
@@ -326,26 +368,27 @@ func (h *Handler) handleDashboard(w http.ResponseWriter, r *http.Request) {
 	}
 
 	data := map[string]any{
-		"Page":    "dashboard",
 		"Node":    node,
 		"NodeErr": nodeErr,
 	}
-	if t := parseFlashToast(r); t != nil {
-		data["Toast"] = t
-	}
-	// Reuse dashboard NodeInfo for sidebar to avoid a second /api/v1/node call.
-	if nodeErr == nil {
-		data["SidebarNode"] = node
-		data["SidebarConnected"] = true
-	}
-	h.render(w, "dashboard.html", h.withPlugins(r, data))
+	h.renderFragment(w, "frag-dashboard.html", data)
 }
 
 // ---------- Update plugin ----------
 
-// handleUpdate renders the update manager page.
-// Fixed 3 goroutines — no semaphore needed.
+// handleUpdate renders the update manager page with skeleton placeholders.
+// Actual data loads asynchronously via the /fragments/update endpoint.
 func (h *Handler) handleUpdate(w http.ResponseWriter, r *http.Request) {
+	data := map[string]any{"Page": "update"}
+	if t := parseFlashToast(r); t != nil {
+		data["Toast"] = t
+	}
+	h.render(w, "update.html", h.withPlugins(r, data))
+}
+
+// handleUpdateFragment returns the update page data as an htmx fragment.
+// Fixed 3 goroutines — no semaphore needed.
+func (h *Handler) handleUpdateFragment(w http.ResponseWriter, r *http.Request) {
 	var (
 		pending   []PendingUpdate
 		runStatus RunStatus
@@ -401,7 +444,6 @@ func (h *Handler) handleUpdate(w http.ResponseWriter, r *http.Request) {
 	}
 
 	data := map[string]any{
-		"Page":          "update",
 		"Pending":       pending,
 		"PendingCount":  len(pending),
 		"SecurityCount": securityCount,
@@ -411,10 +453,7 @@ func (h *Handler) handleUpdate(w http.ResponseWriter, r *http.Request) {
 		"Config":        config,
 		"ConfigErr":     configErr,
 	}
-	if t := parseFlashToast(r); t != nil {
-		data["Toast"] = t
-	}
-	h.render(w, "update.html", h.withPlugins(r, data))
+	h.renderFragment(w, "frag-update.html", data)
 }
 
 // handleUpdateRun triggers an update via the async jobs API and returns a
@@ -723,9 +762,19 @@ func (h *Handler) handleUpdateSettings(w http.ResponseWriter, r *http.Request) {
 
 // ---------- Network plugin ----------
 
-// handleNetwork renders the network info page.
-// Fixed 3 goroutines — no semaphore needed.
+// handleNetwork renders the network page with skeleton placeholders.
+// Actual data loads asynchronously via the /fragments/network endpoint.
 func (h *Handler) handleNetwork(w http.ResponseWriter, r *http.Request) {
+	data := map[string]any{"Page": "network"}
+	if t := parseFlashToast(r); t != nil {
+		data["Toast"] = t
+	}
+	h.render(w, "network.html", h.withPlugins(r, data))
+}
+
+// handleNetworkFragment returns the network data as an htmx fragment.
+// Fixed 3 goroutines — no semaphore needed.
+func (h *Handler) handleNetworkFragment(w http.ResponseWriter, r *http.Request) {
 	var (
 		ifaces    []NetworkInterface
 		status    NetworkStatus
@@ -762,7 +811,6 @@ func (h *Handler) handleNetwork(w http.ResponseWriter, r *http.Request) {
 	}
 
 	data := map[string]any{
-		"Page":      "network",
 		"Ifaces":    ifaces,
 		"IfaceErr":  ifaceErr,
 		"Status":    status,
@@ -770,8 +818,5 @@ func (h *Handler) handleNetwork(w http.ResponseWriter, r *http.Request) {
 		"DNS":       dns,
 		"DNSErr":    dnsErr,
 	}
-	if t := parseFlashToast(r); t != nil {
-		data["Toast"] = t
-	}
-	h.render(w, "network.html", h.withPlugins(r, data))
+	h.renderFragment(w, "frag-network.html", data)
 }

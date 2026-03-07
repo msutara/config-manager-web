@@ -1,33 +1,11 @@
 {{ define "page" }}{{ template "layout" . }}{{ end }}
 
 {{ define "content" }}
-<h2>{{ .Plugin.Name | title }}</h2>
-<p class="detail">{{ .Plugin.Description }} — v{{ .Plugin.Version }}</p>
+<h2>{{ .PluginTitle }}</h2>
 
-{{ range .EndpointData }}
-<div class="card">
-    <h3>{{ .Description }}</h3>
-    {{ if .Error }}
-    <div class="alert alert-error">{{ .Error }}</div>
-    {{ else }}
-    <pre>{{ .Data }}</pre>
-    {{ end }}
+<div id="page-data" hx-get="/fragments/{{ .PluginName }}" hx-trigger="load" hx-swap="innerHTML" hx-request='{"timeout":15000}'>
+    <p class="detail skeleton skeleton-text" style="width:60%"></p>
+    <div class="card"><div class="skeleton skeleton-card"></div></div>
+    <div class="card"><div class="skeleton skeleton-card"></div></div>
 </div>
-{{ end }}
-
-{{ if .Actions }}
-<h3>Actions</h3>
-<div class="actions">
-    {{ range .Actions }}
-    <button class="btn btn-primary"
-            hx-post="/{{ $.PluginName }}/actions{{ .Path }}"
-            hx-target="#action-result"
-            hx-swap="innerHTML"
-            hx-confirm="Execute '{{ .Description }}'?">
-        {{ .Description }}
-    </button>
-    {{ end }}
-</div>
-<div id="action-result"></div>
-{{ end }}
 {{ end }}

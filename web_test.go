@@ -235,8 +235,13 @@ func TestDashboard_RendersWithAPIError(t *testing.T) {
 	if w.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", w.Code)
 	}
-	if !strings.Contains(w.Body.String(), "Failed to load system info") {
-		t.Fatal("should show error when API unreachable")
+	// Page now shows skeleton; error message appears in the fragment.
+	body := w.Body.String()
+	if !strings.Contains(body, `hx-get="/fragments/dashboard"`) {
+		t.Error("dashboard should contain hx-get for lazy loading fragment")
+	}
+	if !strings.Contains(body, "skeleton") {
+		t.Error("dashboard should contain skeleton placeholders")
 	}
 }
 
@@ -250,8 +255,13 @@ func TestUpdatePage_RendersWithAPIError(t *testing.T) {
 	if w.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", w.Code)
 	}
-	if !strings.Contains(w.Body.String(), "Failed to load pending updates") {
-		t.Fatal("should show error when API unreachable")
+	// Page now shows skeleton; error message appears in the fragment.
+	body := w.Body.String()
+	if !strings.Contains(body, `hx-get="/fragments/update"`) {
+		t.Error("update page should contain hx-get for lazy loading fragment")
+	}
+	if !strings.Contains(body, "skeleton") {
+		t.Error("update page should contain skeleton placeholders")
 	}
 }
 
@@ -265,8 +275,13 @@ func TestNetworkPage_RendersWithAPIError(t *testing.T) {
 	if w.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", w.Code)
 	}
-	if !strings.Contains(w.Body.String(), "Failed to load network status") {
-		t.Fatal("should show error when API unreachable")
+	// Page now shows skeleton; error message appears in the fragment.
+	body := w.Body.String()
+	if !strings.Contains(body, `hx-get="/fragments/network"`) {
+		t.Error("network page should contain hx-get for lazy loading fragment")
+	}
+	if !strings.Contains(body, "skeleton") {
+		t.Error("network page should contain skeleton placeholders")
 	}
 }
 

@@ -5,30 +5,13 @@
 {{ define "content" }}
 <h2>Dashboard</h2>
 
-{{ if .NodeErr }}
-<div class="alert alert-error">Failed to load system info: {{ .NodeErr }}</div>
-{{ else }}
-<div class="card-grid">
-    <div class="card">
-        <h3>Hostname</h3>
-        <p class="value">{{ .Node.Hostname }}</p>
-    </div>
-    <div class="card">
-        <h3>Operating System</h3>
-        <p class="value">{{ .Node.OS }}</p>
-    </div>
-    <div class="card">
-        <h3>Kernel</h3>
-        <p class="value">{{ .Node.Kernel }}</p>
-    </div>
-    <div class="card">
-        <h3>Architecture</h3>
-        <p class="value">{{ .Node.Arch }}</p>
-    </div>
-    <div class="card" hx-get="/" hx-trigger="every 30s" hx-select=".uptime-value" hx-target=".uptime-value" hx-swap="outerHTML">
-        <h3>Uptime</h3>
-        <p class="value uptime-value">{{ formatUptime .Node.UptimeSeconds }}</p>
+<div id="page-data" hx-get="/fragments/dashboard" hx-trigger="load" hx-swap="innerHTML" hx-request='{"timeout":15000}'>
+    <div class="card-grid">
+        <div class="card"><h3>Hostname</h3><div class="skeleton skeleton-text"></div></div>
+        <div class="card"><h3>Operating System</h3><div class="skeleton skeleton-text"></div></div>
+        <div class="card"><h3>Kernel</h3><div class="skeleton skeleton-text"></div></div>
+        <div class="card"><h3>Architecture</h3><div class="skeleton skeleton-text"></div></div>
+        <div class="card"><h3>Uptime</h3><div class="skeleton skeleton-text"></div></div>
     </div>
 </div>
-{{ end }}
 {{ end }}
