@@ -1,0 +1,49 @@
+{{ if .Error }}
+<div class="alert alert-error">Failed to load job history: {{ .Error }} <button class="btn btn-sm" onclick="htmx.trigger(document.getElementById('page-data'),'retry')">Retry</button></div>
+{{ else if and (not .Runs) (not .HasPrev) }}
+<p>No runs recorded for this job.</p>
+{{ else }}
+{{ if .Runs }}
+<table class="data-table">
+    <thead>
+        <tr>
+            <th>Status</th>
+            <th>Started At</th>
+            <th>Duration</th>
+            <th>Error</th>
+        </tr>
+    </thead>
+    <tbody>
+        {{ range .Runs }}
+        <tr>
+            <td>{{ if eq .Status "completed" }}<span title="Completed">✓</span>{{ else if eq .Status "failed" }}<span title="Failed">✗</span>{{ else }}{{ .Status }}{{ end }}</td>
+            <td>{{ .StartedAt }}</td>
+            <td>{{ .Duration }}</td>
+            <td>{{ .Error }}</td>
+        </tr>
+        {{ end }}
+    </tbody>
+</table>
+{{ else }}
+<p>No more runs on this page.</p>
+{{ end }}
+
+<div class="actions">
+    {{ if .HasPrev }}
+    <button class="btn btn-secondary"
+            hx-get="/fragments/history?job={{ .JobID }}&amp;offset={{ .PrevOffset }}&amp;limit={{ .Limit }}"
+            hx-target="#page-data"
+            hx-swap="innerHTML">
+        ← Previous
+    </button>
+    {{ end }}
+    {{ if .HasNext }}
+    <button class="btn btn-secondary"
+            hx-get="/fragments/history?job={{ .JobID }}&amp;offset={{ .NextOffset }}&amp;limit={{ .Limit }}"
+            hx-target="#page-data"
+            hx-swap="innerHTML">
+        Next →
+    </button>
+    {{ end }}
+</div>
+{{ end }}

@@ -1,2 +1,6 @@
 github.com/go-chi/chi/v5 v5.2.1 h1:KOIHODQj58PmL80G2Eak4WdvUzjSJSm0vG72crDCqb8=
 github.com/go-chi/chi/v5 v5.2.1/go.mod h1:L2yAIGWB3H+phAw1NxKwWM+7eUH/lU8pOMm5hHcoops=
+github.com/msutara/config-manager-core v0.4.2 h1:OkqK52pjcicLqKFyl6Xoyf/Y+p9FFfqBdTDH7Pnegso=
+github.com/msutara/config-manager-core v0.4.2/go.mod h1:d3Bslg+LZvk52IUxr1f4eKVwGadcwyfTjAgS/zxaq64=
+github.com/msutara/config-manager-core v0.4.3-0.20260308225344-7da27b1725de h1:qCXRVCUV5dGq6vAcu2ngVgZDfA5d68wVFHyPtjwaM4k=
+github.com/msutara/config-manager-core v0.4.3-0.20260308225344-7da27b1725de/go.mod h1:d3Bslg+LZvk52IUxr1f4eKVwGadcwyfTjAgS/zxaq64=

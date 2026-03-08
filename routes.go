@@ -652,6 +652,70 @@ func (h *Handler) handleProgress(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// ---------- Job history ----------
+
+// defaultHistoryLimit is the number of runs shown per page.
+const defaultHistoryLimit = 20
+
+// handleHistory renders the job history page with skeleton placeholders.
+// Actual data loads asynchronously via the /fragments/history endpoint.
+func (h *Handler) handleHistory(w http.ResponseWriter, r *http.Request) {
+	jobID := r.URL.Query().Get("job")
+	if !validJobID.MatchString(jobID) {
+		http.Error(w, "Invalid job ID", http.StatusBadRequest)
+		return
+	}
+	data := map[string]any{
+		"Page":  "history",
+		"JobID": jobID,
+	}
+	h.render(w, "history.html", h.withPlugins(r, data))
+}
+
+// handleHistoryFragment returns paginated job history as an htmx fragment.
+func (h *Handler) handleHistoryFragment(w http.ResponseWriter, r *http.Request) {
+	jobID := r.URL.Query().Get("job")
+	if !validJobID.MatchString(jobID) {
+		http.Error(w, "Invalid job ID", http.StatusBadRequest)
+		return
+	}
+
+	limit := defaultHistoryLimit
+	if v := r.URL.Query().Get("limit"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 && n <= 100 {
+			limit = n
+		}
+	}
+	offset := 0
+	if v := r.URL.Query().Get("offset"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n >= 0 {
+			offset = n
+		}
+	}
+
+	runs, err := h.client.listJobRuns(r.Context(), jobID, limit, offset)
+
+	data := map[string]any{
+		"JobID": jobID,
+		"Limit": limit,
+	}
+	if err != nil {
+		slog.Error("web: failed to fetch job runs", "job", jobID, "error", err)
+		data["Error"] = err.Error()
+	} else {
+		data["Runs"] = runs
+		data["HasPrev"] = offset > 0
+		if offset-limit >= 0 {
+			data["PrevOffset"] = offset - limit
+		} else {
+			data["PrevOffset"] = 0
+		}
+		data["HasNext"] = len(runs) == limit
+		data["NextOffset"] = offset + limit
+	}
+	h.renderFragment(w, "frag-history.html", data)
+}
+
 // cronShortcuts are the standard @-shortcuts accepted by the core scheduler.
 var cronShortcuts = map[string]bool{
 	"@yearly": true, "@annually": true, "@monthly": true,

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -151,6 +152,31 @@ func mockAPI(t *testing.T) *httptest.Server {
 		json.NewEncoder(w).Encode(PluginSettingsUpdateResult{
 			Config: map[string]any{body.Key: body.Value},
 		})
+	})
+
+	mux.HandleFunc("/api/v1/jobs/update.full/runs", func(w http.ResponseWriter, r *http.Request) {
+		limit := 20
+		offset := 0
+		if v := r.URL.Query().Get("limit"); v != "" {
+			fmt.Sscanf(v, "%d", &limit)
+		}
+		if v := r.URL.Query().Get("offset"); v != "" {
+			fmt.Sscanf(v, "%d", &offset)
+		}
+		allRuns := []JobRun{
+			{JobID: "update.full", Status: "completed", StartedAt: "2026-02-27T10:00:00Z", Duration: "2m 15s"},
+			{JobID: "update.full", Status: "failed", StartedAt: "2026-02-26T10:00:00Z", Duration: "1m 30s", Error: "package conflict"},
+			{JobID: "update.full", Status: "completed", StartedAt: "2026-02-25T10:00:00Z", Duration: "3m 00s"},
+		}
+		if offset >= len(allRuns) {
+			json.NewEncoder(w).Encode([]JobRun{})
+			return
+		}
+		end := offset + limit
+		if end > len(allRuns) {
+			end = len(allRuns)
+		}
+		json.NewEncoder(w).Encode(allRuns[offset:end])
 	})
 
 	return httptest.NewServer(mux)
@@ -3823,5 +3849,350 @@ func TestPluginPage_CacheFallback_SkipsNodeFetch(t *testing.T) {
 	if nodeCalls != primeNodeCalls {
 		t.Errorf("expected no additional /api/v1/node calls during cache fallback, got %d extra",
 			nodeCalls-primeNodeCalls)
+	}
+}
+
+// ---------- Job history tests ----------
+
+func TestListJobRuns(t *testing.T) {
+	api := mockAPI(t)
+	defer api.Close()
+
+	c := newAPIClient(api.URL, "")
+	runs, err := c.listJobRuns(context.Background(), "update.full", 20, 0)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(runs) != 3 {
+		t.Fatalf("expected 3 runs, got %d", len(runs))
+	}
+	if runs[0].Status != "completed" {
+		t.Errorf("first run status = %q, want %q", runs[0].Status, "completed")
+	}
+	if runs[1].Status != "failed" {
+		t.Errorf("second run status = %q, want %q", runs[1].Status, "failed")
+	}
+	if runs[1].Error != "package conflict" {
+		t.Errorf("second run error = %q, want %q", runs[1].Error, "package conflict")
+	}
+}
+
+func TestListJobRuns_InvalidJobID(t *testing.T) {
+	c := newAPIClient("http://localhost:1", "")
+	_, err := c.listJobRuns(context.Background(), "bad id!", 20, 0)
+	if err == nil {
+		t.Fatal("expected error for invalid job ID")
+	}
+	if !strings.Contains(err.Error(), "invalid job id") {
+		t.Fatalf("error should mention invalid job id: %v", err)
+	}
+}
+
+func TestListJobRuns_Pagination(t *testing.T) {
+	api := mockAPI(t)
+	defer api.Close()
+
+	c := newAPIClient(api.URL, "")
+
+	// Fetch with limit=2 offset=0 — should get first 2.
+	runs, err := c.listJobRuns(context.Background(), "update.full", 2, 0)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(runs) != 2 {
+		t.Fatalf("expected 2 runs, got %d", len(runs))
+	}
+
+	// Fetch with limit=2 offset=2 — should get last 1.
+	runs, err = c.listJobRuns(context.Background(), "update.full", 2, 2)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(runs) != 1 {
+		t.Fatalf("expected 1 run, got %d", len(runs))
+	}
+
+	// Fetch with offset past end — should get empty.
+	runs, err = c.listJobRuns(context.Background(), "update.full", 20, 100)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(runs) != 0 {
+		t.Fatalf("expected 0 runs, got %d", len(runs))
+	}
+}
+
+func TestHandleHistory(t *testing.T) {
+	api := mockAPI(t)
+	defer api.Close()
+
+	h := newTestHandler(t, api.URL, "")
+	req := httptest.NewRequest(http.MethodGet, "/history?job=update.full", nil)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", w.Code)
+	}
+	body := w.Body.String()
+	if !strings.Contains(body, "Job History") {
+		t.Error("page should contain Job History heading")
+	}
+	if !strings.Contains(body, "update.full") {
+		t.Error("page should contain the job ID")
+	}
+	if !strings.Contains(body, `hx-get="/fragments/history?job=update.full"`) {
+		t.Error("page should contain hx-get for lazy loading fragment")
+	}
+	if !strings.Contains(body, "skeleton") {
+		t.Error("page should contain skeleton placeholders")
+	}
+}
+
+func TestHandleHistory_InvalidJobID(t *testing.T) {
+	h := newTestHandler(t, "http://localhost:1", "")
+	req := httptest.NewRequest(http.MethodGet, "/history?job=INVALID!", nil)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d", w.Code)
+	}
+}
+
+func TestHandleHistory_MissingJobID(t *testing.T) {
+	h := newTestHandler(t, "http://localhost:1", "")
+	req := httptest.NewRequest(http.MethodGet, "/history", nil)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d", w.Code)
+	}
+}
+
+func TestHandleHistory_Empty(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/v1/plugins", func(w http.ResponseWriter, _ *http.Request) {
+		json.NewEncoder(w).Encode([]PluginInfo{})
+	})
+	mux.HandleFunc("/api/v1/node", func(w http.ResponseWriter, _ *http.Request) {
+		json.NewEncoder(w).Encode(NodeInfo{Hostname: "test"})
+	})
+	mux.HandleFunc("/api/v1/jobs/update.full/runs", func(w http.ResponseWriter, _ *http.Request) {
+		json.NewEncoder(w).Encode([]JobRun{})
+	})
+	api := httptest.NewServer(mux)
+	defer api.Close()
+
+	h := newTestHandler(t, api.URL, "")
+	req := httptest.NewRequest(http.MethodGet, "/fragments/history?job=update.full", nil)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", w.Code)
+	}
+	body := w.Body.String()
+	if !strings.Contains(body, "No runs recorded") {
+		t.Error("empty history should show 'No runs recorded' message")
+	}
+}
+
+func TestHandleHistoryFragment(t *testing.T) {
+	api := mockAPI(t)
+	defer api.Close()
+
+	h := newTestHandler(t, api.URL, "")
+	req := httptest.NewRequest(http.MethodGet, "/fragments/history?job=update.full", nil)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", w.Code)
+	}
+	body := w.Body.String()
+	if !strings.Contains(body, "✓") {
+		t.Error("fragment should contain ✓ for completed runs")
+	}
+	if !strings.Contains(body, "✗") {
+		t.Error("fragment should contain ✗ for failed runs")
+	}
+	if !strings.Contains(body, "2026-02-27T10:00:00Z") {
+		t.Error("fragment should contain started_at timestamp")
+	}
+	if !strings.Contains(body, "2m 15s") {
+		t.Error("fragment should contain duration")
+	}
+	if !strings.Contains(body, "package conflict") {
+		t.Error("fragment should contain error message")
+	}
+	// 3 runs with limit=20, so no pagination needed.
+	if strings.Contains(body, "Next") {
+		t.Error("fragment should not show Next button when all runs fit in one page")
+	}
+}
+
+func TestHandleHistoryFragment_Pagination(t *testing.T) {
+	api := mockAPI(t)
+	defer api.Close()
+
+	h := newTestHandler(t, api.URL, "")
+	// Request with limit=2 — should show Next button.
+	req := httptest.NewRequest(http.MethodGet, "/fragments/history?job=update.full&limit=2&offset=0", nil)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", w.Code)
+	}
+	body := w.Body.String()
+	if !strings.Contains(body, "Next") {
+		t.Error("fragment should show Next button when there are more pages")
+	}
+	if strings.Contains(body, "Previous") {
+		t.Error("fragment should not show Previous button on first page")
+	}
+	if !strings.Contains(body, `hx-get="/fragments/history?job=update.full&amp;offset=2&amp;limit=2"`) {
+		t.Error("Next button should link to offset=2")
+	}
+
+	// Request page 2.
+	req = httptest.NewRequest(http.MethodGet, "/fragments/history?job=update.full&limit=2&offset=2", nil)
+	w = httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	body = w.Body.String()
+	if !strings.Contains(body, "Previous") {
+		t.Error("fragment should show Previous button on page 2")
+	}
+	if !strings.Contains(body, `hx-get="/fragments/history?job=update.full&amp;offset=0&amp;limit=2"`) {
+		t.Error("Previous button should link to offset=0")
+	}
+}
+
+func TestHandleHistoryFragment_APIError(t *testing.T) {
+	srv := httptest.NewServer(http.NotFoundHandler())
+	srv.Close()
+
+	h := newTestHandler(t, srv.URL, "")
+	req := httptest.NewRequest(http.MethodGet, "/fragments/history?job=update.full", nil)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200 with error message, got %d", w.Code)
+	}
+	body := w.Body.String()
+	if !strings.Contains(body, "Failed to load job history") {
+		t.Error("fragment should show error message when API fails")
+	}
+	if !strings.Contains(body, "Retry") {
+		t.Error("fragment should contain retry button on error")
+	}
+}
+
+func TestHandleHistoryFragment_InvalidJobID(t *testing.T) {
+	h := newTestHandler(t, "http://localhost:1", "")
+	req := httptest.NewRequest(http.MethodGet, "/fragments/history?job=BAD!", nil)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d", w.Code)
+	}
+}
+
+func TestHandleHistoryFragment_InvalidParams(t *testing.T) {
+	api := mockAPI(t)
+	defer api.Close()
+
+	h := newTestHandler(t, api.URL, "")
+
+	tests := []struct {
+		name  string
+		query string
+	}{
+		{"zero limit", "?job=update.full&limit=0"},
+		{"negative limit", "?job=update.full&limit=-5"},
+		{"over-max limit", "?job=update.full&limit=101"},
+		{"non-integer limit", "?job=update.full&limit=abc"},
+		{"negative offset", "?job=update.full&offset=-1"},
+		{"non-integer offset", "?job=update.full&offset=xyz"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodGet, "/fragments/history"+tt.query, nil)
+			w := httptest.NewRecorder()
+			h.ServeHTTP(w, req)
+
+			if w.Code != http.StatusOK {
+				t.Fatalf("expected 200 (graceful fallback), got %d", w.Code)
+			}
+			// Should still render valid HTML with data (using defaults)
+			body := w.Body.String()
+			if !strings.Contains(body, "2026-02-27") {
+				t.Error("should render data using default params")
+			}
+		})
+	}
+}
+
+func TestUpdateFragment_ContainsHistoryLink(t *testing.T) {
+	api := mockAPI(t)
+	defer api.Close()
+
+	h := newTestHandler(t, api.URL, "")
+	req := httptest.NewRequest(http.MethodGet, "/fragments/update", nil)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", w.Code)
+	}
+	body := w.Body.String()
+	if !strings.Contains(body, "View Run History") {
+		t.Error("update fragment should contain 'View Run History' link")
+	}
+	if !strings.Contains(body, "/history?job=update.") {
+		t.Error("update fragment should link to /history?job=update.*")
+	}
+}
+
+func TestHandleHistoryFragment_PastEnd(t *testing.T) {
+	api := mockAPI(t)
+	defer api.Close()
+
+	h := newTestHandler(t, api.URL, "")
+	// Request with offset past all 3 runs in mockAPI
+	req := httptest.NewRequest(http.MethodGet, "/fragments/history?job=update.full&limit=2&offset=100", nil)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", w.Code)
+	}
+	body := w.Body.String()
+	if !strings.Contains(body, "No more runs on this page") {
+		t.Error("past-end page should show 'No more runs on this page'")
+	}
+	if !strings.Contains(body, "Previous") {
+		t.Error("past-end page should show Previous button to navigate back")
+	}
+	if strings.Contains(body, "Next") {
+		t.Error("past-end page should NOT show Next button")
+	}
+}
+
+func TestListJobRuns_ServerError(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer srv.Close()
+
+	c := newAPIClient(srv.URL, "")
+	_, err := c.listJobRuns(context.Background(), "update.full", 20, 0)
+	if err == nil {
+		t.Fatal("expected error for 500 response")
 	}
 }

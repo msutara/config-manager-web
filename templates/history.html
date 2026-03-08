@@ -1,0 +1,20 @@
+{{ define "page" }}
+{{ template "layout" . }}
+{{ end }}
+
+{{ define "content" }}
+<h2>Job History — {{ .JobID }}</h2>
+
+<div id="page-data" hx-get="/fragments/history?job={{ .JobID }}" hx-trigger="load, retry" hx-swap="innerHTML" hx-request='{"timeout":15000}'>
+    <table class="data-table">
+        <thead>
+            <tr><th>Status</th><th>Started At</th><th>Duration</th><th>Error</th></tr>
+        </thead>
+        <tbody>
+            <tr><td><div class="skeleton skeleton-text"></div></td><td><div class="skeleton skeleton-text"></div></td><td><div class="skeleton skeleton-text"></div></td><td><div class="skeleton skeleton-text"></div></td></tr>
+            <tr><td><div class="skeleton skeleton-text"></div></td><td><div class="skeleton skeleton-text"></div></td><td><div class="skeleton skeleton-text"></div></td><td><div class="skeleton skeleton-text"></div></td></tr>
+            <tr><td><div class="skeleton skeleton-text"></div></td><td><div class="skeleton skeleton-text"></div></td><td><div class="skeleton skeleton-text"></div></td><td><div class="skeleton skeleton-text"></div></td></tr>
+        </tbody>
+    </table>
+</div>
+{{ end }}

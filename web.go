@@ -163,7 +163,7 @@ func NewHandler(apiURL, authToken string) http.Handler {
 	// "content" block name collisions between pages.
 	layoutBytes := mustRead("layout.html")
 	h.templates = make(map[string]*template.Template)
-	for _, page := range []string{"dashboard.html", "update.html", "network.html", "plugin.html"} {
+	for _, page := range []string{"dashboard.html", "update.html", "network.html", "plugin.html", "history.html"} {
 		t := template.Must(template.New("").Funcs(funcMap).Parse(string(layoutBytes)))
 		template.Must(t.Parse(string(mustRead(page))))
 		h.templates[page] = t
@@ -175,7 +175,7 @@ func NewHandler(apiURL, authToken string) http.Handler {
 	h.templates["progress.html"] = template.Must(
 		template.New("progress").Funcs(funcMap).Parse(string(mustRead("progress.html"))))
 	// Data fragment templates — standalone htmx fragments for lazy loading.
-	for _, frag := range []string{"frag-dashboard.html", "frag-update.html", "frag-network.html", "frag-plugin.html"} {
+	for _, frag := range []string{"frag-dashboard.html", "frag-update.html", "frag-network.html", "frag-plugin.html", "frag-history.html"} {
 		h.templates[frag] = template.Must(
 			template.New(frag).Funcs(funcMap).Parse(string(mustRead(frag))))
 	}
@@ -211,6 +211,9 @@ func NewHandler(apiURL, authToken string) http.Handler {
 		// Generic job progress polling (plugin-agnostic).
 		r.Get("/progress", h.handleProgress)
 
+		// Job history (plugin-agnostic).
+		r.Get("/history", h.handleHistory)
+
 		// Update plugin (custom handlers for richer UX).
 		r.Get("/update", h.handleUpdate)
 		r.Post("/update/run", h.handleUpdateRun)
@@ -230,6 +233,7 @@ func NewHandler(apiURL, authToken string) http.Handler {
 		r.Get("/fragments/dashboard", h.handleDashboardFragment)
 		r.Get("/fragments/update", h.handleUpdateFragment)
 		r.Get("/fragments/network", h.handleNetworkFragment)
+		r.Get("/fragments/history", h.handleHistoryFragment)
 		r.Get("/fragments/{plugin:[a-z][a-z0-9-]*}", h.handlePluginFragment)
 	})
 

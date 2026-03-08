@@ -46,6 +46,7 @@
         {{ if .RunStatus.StartedAt }}<p class="detail">{{ .RunStatus.StartedAt }}</p>{{ end }}
         {{ if .RunStatus.Duration }}<p class="detail">Duration: {{ .RunStatus.Duration }}</p>{{ end }}
         {{ if .RunStatus.Status }}<p class="detail">Packages: {{ .RunStatus.Packages }}</p>{{ end }}
+        {{ if .RunStatus.Type }}<p class="detail"><a href="/history?job=update.{{ .RunStatus.Type }}">View Run History</a></p>{{ end }}
     </div>
 </div>
 {{ if .RunStatus.Log }}

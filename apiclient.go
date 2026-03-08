@@ -261,6 +261,21 @@ func (c *apiClient) postConfirm(ctx context.Context, path string, dst any) error
 	return c.doRequest(ctx, http.MethodPost, path, nil, dst, withConfirm)
 }
 
+// ---------- Job history ----------
+
+// listJobRuns fetches paginated job execution history for a job.
+func (c *apiClient) listJobRuns(ctx context.Context, jobID string, limit, offset int) ([]JobRun, error) {
+	if !validJobID.MatchString(jobID) {
+		return nil, fmt.Errorf("invalid job id: %q", jobID)
+	}
+	path := fmt.Sprintf("/api/v1/jobs/%s/runs?limit=%d&offset=%d", jobID, limit, offset)
+	var runs []JobRun
+	if err := c.get(ctx, path, &runs); err != nil {
+		return nil, err
+	}
+	return runs, nil
+}
+
 // ---------- Plugin settings ----------
 
 // validPluginName matches plugin names according to the router's constraint:
@@ -326,7 +341,8 @@ type NodeInfo struct {
 	UptimeSeconds int    `json:"uptime_seconds"`
 }
 
-// JobRun holds the response from GET /api/v1/jobs/{id}/runs/latest.
+// JobRun holds a job execution record returned by GET /api/v1/jobs/{id}/runs/latest
+// and GET /api/v1/jobs/{id}/runs (paginated list).
 type JobRun struct {
 	JobID     string `json:"job_id"`
 	Status    string `json:"status"` // Core API: "running", "completed", "failed"; web-layer synthetic: "error"
