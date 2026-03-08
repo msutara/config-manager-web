@@ -43,14 +43,24 @@ func parseFormLimited(w http.ResponseWriter, r *http.Request) error {
 func (h *Handler) writeNetworkError(w http.ResponseWriter, title string, err error) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	safeErr := html.EscapeString(err.Error())
-	if apiErr, ok := err.(*APIError); ok {
+	toastLevel := "error"
+	var apiErr *APIError
+	if errors.As(err, &apiErr) {
 		safeErr = html.EscapeString(apiErr.Message)
+		if apiErr.StatusCode == http.StatusForbidden {
+			toastLevel = "warning"
+			title = "Interface protected by policy"
+		}
 	}
-	_, _ = w.Write([]byte(`<div class="alert alert-error"><strong>` + //nolint:errcheck // HTTP write
+	// Whitelist toastLevel to prevent injection if logic above is extended.
+	if toastLevel != "error" && toastLevel != "warning" {
+		toastLevel = "error"
+	}
+	_, _ = w.Write([]byte(`<div class="alert alert-` + toastLevel + `"><strong>` + //nolint:errcheck // HTTP write
 		html.EscapeString(title) + `</strong>` +
 		`<details class="error-details"><summary>Show details</summary>` +
 		`<pre>` + safeErr + `</pre></details></div>` +
-		toastOOB("error", title)))
+		toastOOB(toastLevel, title)))
 }
 
 // writeFormError writes an inline alert for parseFormLimited failures.

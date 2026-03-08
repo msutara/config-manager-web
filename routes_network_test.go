@@ -860,7 +860,7 @@ func TestNetworkHandlers_OversizedBody(t *testing.T) {
 	}
 }
 
-// ---------- writeNetworkError generic error branch ----------
+// ---------- writeNetworkError ----------
 
 func TestWriteNetworkError_GenericError(t *testing.T) {
 	// Point the handler at an unreachable API so the HTTP client returns a
@@ -882,6 +882,171 @@ func TestWriteNetworkError_GenericError(t *testing.T) {
 	// Ensure the error detail block is present (the <pre> with error text).
 	if !strings.Contains(body, "<pre>") {
 		t.Error("expected error details in response")
+	}
+	// Generic errors must produce error-level (not warning) styling.
+	if !strings.Contains(body, `alert-error`) {
+		t.Error("expected alert-error class for generic error")
+	}
+}
+
+func TestWriteNetworkError_403PolicyWarning(t *testing.T) {
+	// Backend returns 403 with a policy error message.
+	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusForbidden)
+		_, _ = w.Write([]byte(`{"error":{"code":403,"message":"interface 'lo' is not allowed for write operations"}}`))
+	}))
+	defer api.Close()
+
+	h := newTestHandler(t, api.URL, "")
+	form := "name=lo&address=127.0.0.1%2F8&netmask=255.0.0.0"
+	req := httptest.NewRequest(http.MethodPost, "/network/set-static-ip", strings.NewReader(form))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	body := w.Body.String()
+	// Must use warning-level styling, not error.
+	if !strings.Contains(body, `alert-warning`) {
+		t.Errorf("expected alert-warning class for 403, got: %s", body)
+	}
+	if strings.Contains(body, `alert-error`) {
+		t.Error("403 should not produce alert-error class")
+	}
+	// Title must be overridden to the policy message.
+	if !strings.Contains(body, "Interface protected by policy") {
+		t.Errorf("expected policy title, got: %s", body)
+	}
+	// API message should appear in the detail block.
+	if !strings.Contains(body, "not allowed for write operations") {
+		t.Errorf("expected API message in details, got: %s", body)
+	}
+	// OOB toast must be warning-level.
+	if !strings.Contains(body, `hx-swap-oob`) {
+		t.Error("expected OOB toast in 403 response")
+	}
+}
+
+func TestWriteNetworkError_400APIErrorKeepsErrorLevel(t *testing.T) {
+	// Backend returns 400 — should remain error-level with original title.
+	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = w.Write([]byte(`{"error":{"code":400,"message":"bad payload"}}`))
+	}))
+	defer api.Close()
+
+	h := newTestHandler(t, api.URL, "")
+	form := "name=eth0&address=10.0.0.1%2F24&netmask=255.255.255.0"
+	req := httptest.NewRequest(http.MethodPost, "/network/set-static-ip", strings.NewReader(form))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	body := w.Body.String()
+	// Must remain error-level.
+	if !strings.Contains(body, `alert-error`) {
+		t.Errorf("expected alert-error class for 400, got: %s", body)
+	}
+	if strings.Contains(body, `alert-warning`) {
+		t.Error("400 should not produce alert-warning class")
+	}
+	// Original title should be preserved (not overridden to policy message).
+	if !strings.Contains(body, "Failed to set static IP") {
+		t.Errorf("expected original title for 400, got: %s", body)
+	}
+	if strings.Contains(body, "Interface protected by policy") {
+		t.Error("400 should not show policy title")
+	}
+}
+
+func TestWriteNetworkError_403XSSInMessage(t *testing.T) {
+	// Backend returns 403 with an XSS payload in the error message.
+	// Verifies HTML escaping in the warning (403) code path specifically.
+	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusForbidden)
+		_, _ = w.Write([]byte(`{"error":{"code":403,"message":"<script>alert('xss')</script>"}}`))
+	}))
+	defer api.Close()
+
+	h := newTestHandler(t, api.URL, "")
+	form := "name=eth0&address=10.0.0.1%2F24&netmask=255.255.255.0"
+	req := httptest.NewRequest(http.MethodPost, "/network/set-static-ip", strings.NewReader(form))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	body := w.Body.String()
+	if strings.Contains(body, "<script>") {
+		t.Error("403 response must not contain raw <script> tag (XSS)")
+	}
+	if !strings.Contains(body, "&lt;script&gt;") {
+		t.Error("403 response must contain HTML-escaped script tag")
+	}
+	if !strings.Contains(body, `alert-warning`) {
+		t.Error("403 with XSS payload must still use warning level")
+	}
+}
+
+func TestNetworkHandlers_403PolicyWarning(t *testing.T) {
+	// All network write handlers funnel through writeNetworkError.
+	// Verify each handler renders 403 as a warning toast with policy title.
+	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusForbidden)
+		_, _ = w.Write([]byte(`{"error":{"code":403,"message":"interface policy denies this operation"}}`))
+	}))
+	defer api.Close()
+
+	h := newTestHandler(t, api.URL, "")
+	handlers := []struct {
+		name, path, form string
+	}{
+		{"SetStaticIP", "/network/set-static-ip", "name=eth0&address=10.0.0.1%2F24&netmask=255.255.255.0"},
+		{"SetDNS", "/network/set-dns", "nameservers=8.8.8.8"},
+		{"DeleteStaticIP", "/network/delete-static-ip", "name=eth0"},
+		{"RollbackInterface", "/network/rollback-interface", "name=eth0"},
+		{"RollbackDNS", "/network/rollback-dns", ""},
+	}
+	for _, tc := range handlers {
+		t.Run(tc.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodPost, tc.path, strings.NewReader(tc.form))
+			req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+			w := httptest.NewRecorder()
+			h.ServeHTTP(w, req)
+
+			body := w.Body.String()
+			if !strings.Contains(body, `alert-warning`) {
+				t.Errorf("expected alert-warning class for 403, got: %s", body)
+			}
+			if strings.Contains(body, `alert-error`) {
+				t.Error("403 must not produce alert-error class")
+			}
+			if !strings.Contains(body, "Interface protected by policy") {
+				t.Errorf("expected policy title, got: %s", body)
+			}
+			if !strings.Contains(body, `hx-swap-oob`) {
+				t.Error("expected OOB toast in 403 response")
+			}
+		})
+	}
+}
+
+func TestWriteNetworkError_WarningToastUsesStatusRole(t *testing.T) {
+	// Warning-level toasts use role="status" (non-critical), not role="alert".
+	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusForbidden)
+		_, _ = w.Write([]byte(`{"error":{"code":403,"message":"denied"}}`))
+	}))
+	defer api.Close()
+
+	h := newTestHandler(t, api.URL, "")
+	form := "name=eth0&address=10.0.0.1%2F24&netmask=255.255.255.0"
+	req := httptest.NewRequest(http.MethodPost, "/network/set-static-ip", strings.NewReader(form))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	body := w.Body.String()
+	if !strings.Contains(body, `role="status"`) {
+		t.Error("warning-level toast must use role=status for non-critical notification")
 	}
 }
 
