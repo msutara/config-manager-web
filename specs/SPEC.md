@@ -231,3 +231,28 @@ locking).
 - API errors displayed as alert banners on the relevant page
 - Template render errors logged and return 500
 - Default-show behavior: pages render with error messages rather than blank
+
+### Network Write 403 Policy Denials
+
+When a network write operation (set static IP, set DNS, delete static IP,
+rollback interface, rollback DNS) receives a **403 Forbidden** response from
+the core API, the web UI treats it differently from other errors:
+
+1. **Toast level** — downgraded from `error` to `warning` (amber styling
+   instead of red).
+2. **Title override** — the operation-specific title (e.g. "Failed to set
+   static IP for eth0") is replaced with **"Interface protected by policy"**
+   to give the user a clear, actionable message.
+3. **Detail block** — the original API error message (e.g. "interface 'lo'
+   is not allowed for write operations") is preserved in the expandable
+   `<details>` section for debugging.
+4. **ARIA role** — warning toasts use `role="status"` instead of
+   `role="alert"` since the condition is informational, not critical.
+
+This behavior is implemented in `writeNetworkError` (`routes_network.go`).
+All five network write handlers delegate to this function on API failure, so
+the 403 logic applies uniformly.
+
+The `toastLevel` value is validated against a whitelist before interpolation
+into HTML class attributes to prevent injection if future code paths introduce
+additional levels.

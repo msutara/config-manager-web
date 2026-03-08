@@ -17,6 +17,9 @@ headless Debian-based nodes (Raspbian Bookworm ARM, Debian Bullseye slim).
 - Cookie-based authentication using the same Bearer token as the API
 - Responsive dark theme — works on phones, tablets, and desktops
 - Server-rendered with htmx — no JavaScript build step required
+- **Write-policy awareness** — network write operations denied by interface
+  policy show a warning-level toast with actionable guidance instead of a
+  generic error
 - **Skeleton loading** — pages render instant skeleton placeholders, then
   htmx lazy-loads data from fragment endpoints for perceived performance
 - Dynamic plugin sidebar — auto-discovers plugins from the core API registry
@@ -68,6 +71,24 @@ incoming form data at **1 MB** (`maxFormBytes` in `routes_network.go`). This
 prevents oversized submissions from consuming memory on resource-constrained
 ARM devices. Requests exceeding the limit receive an inline error with a toast
 notification.
+
+### Network write error handling
+
+`writeNetworkError` in `routes_network.go` renders inline alerts with
+expandable details and an out-of-band toast notification. It distinguishes
+**403 Forbidden** responses from other errors:
+
+- **403** — the toast level is downgraded from `error` to `warning`, and the
+  title is overridden to "Interface protected by policy" so the user sees
+  actionable guidance instead of a scary red error.
+- **All other errors** — rendered as `error`-level alerts with the original
+  operation title (e.g. "Failed to set static IP for eth0").
+
+The `toastLevel` variable is validated against a whitelist (`"error"` /
+`"warning"`) before being interpolated into the HTML class attribute. This
+prevents CSS-class injection if future code paths introduce new levels
+without sanitization. The `toastOOB` helper applies a second whitelist for
+defense in depth.
 
 ### RoutePrefix validation
 

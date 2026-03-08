@@ -153,6 +153,7 @@ and tablets.
 
 | Symptom | Cause | Fix |
 | --- | --- | --- |
+| "Interface protected by policy" warning | The core network plugin's `interface_policy` denies writes to this interface | Check `interface_policy` in the network plugin config — add the interface to the allow list or remove it from the deny list |
 | "response body exceeds … byte limit" | API response larger than 2 MB | Reduce payload at the source or raise `maxResponseBytes` in `apiclient.go` |
 | Empty log section after a large upgrade | Log response exceeded 2 MB wire limit | Logs are still available via the core API directly (`curl /api/v1/plugins/update/logs`) |
 | "Failed to check job status" in progress | Core API unreachable while polling job | Verify the core service is running; the job may still complete in the background |
