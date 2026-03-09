@@ -1,12 +1,17 @@
+version: "2"
+
 linters:
+  default: none
   enable:
     - errcheck
-    - gofumpt
-    - gosimple
     - govet
     - ineffassign
     - staticcheck
     - unused
+
+formatters:
+  enable:
+    - gofumpt
 
 linters-settings:
   errcheck:
