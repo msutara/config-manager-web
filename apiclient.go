@@ -4,9 +4,11 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"regexp"
 	"time"
 )
@@ -21,10 +23,21 @@ type apiClient struct {
 }
 
 // maxResponseBytes caps the amount of response body data the client will read
-// before decoding JSON.  This prevents unbounded memory allocation when the
-// API returns unexpectedly large payloads (e.g. verbose update logs) — important
-// on ARM devices with limited RAM.
+// before decoding JSON. This prevents unbounded memory allocation when the API
+// returns unexpectedly large payloads — important on ARM devices with limited RAM.
 const maxResponseBytes = 2 << 20 // 2 MB
+
+// sanitizeTransportError strips internal URLs from HTTP client errors.
+func sanitizeTransportError(err error) error {
+	if err == nil {
+		return nil
+	}
+	var urlErr *url.Error
+	if errors.As(err, &urlErr) {
+		return fmt.Errorf("api request failed: %s", urlErr.Err)
+	}
+	return err
+}
 
 // decodeJSON reads up to maxResponseBytes+1 from r, returning a clear error
 // when the response exceeds the limit rather than the ambiguous "unexpected
@@ -54,6 +67,16 @@ func newAPIClient(baseURL, token string) *apiClient {
 			},
 		},
 	}
+}
+
+// String masks the auth token to prevent accidental exposure in logs or fmt output.
+func (c *apiClient) String() string {
+	return fmt.Sprintf("apiClient{baseURL:%q, token:[REDACTED]}", c.baseURL)
+}
+
+// GoString masks the auth token in %#v formatting.
+func (c *apiClient) GoString() string {
+	return c.String()
 }
 
 // apiErrorEnvelope matches the standard error JSON from the core API:
@@ -104,7 +127,7 @@ func (c *apiClient) get(ctx context.Context, path string, dst any) error {
 
 	resp, err := c.http.Do(req)
 	if err != nil {
-		return fmt.Errorf("api request: %w", err)
+		return sanitizeTransportError(err)
 	}
 	defer resp.Body.Close()
 
@@ -141,7 +164,7 @@ func (c *apiClient) post(ctx context.Context, path string, body io.Reader, dst a
 
 	resp, err := c.http.Do(req)
 	if err != nil {
-		return fmt.Errorf("api request: %w", err)
+		return sanitizeTransportError(err)
 	}
 	defer resp.Body.Close()
 
@@ -179,7 +202,7 @@ func (c *apiClient) put(ctx context.Context, path string, body io.Reader, dst an
 
 	resp, err := c.http.Do(req)
 	if err != nil {
-		return fmt.Errorf("api request: %w", err)
+		return sanitizeTransportError(err)
 	}
 	defer resp.Body.Close()
 
@@ -219,7 +242,7 @@ func (c *apiClient) doRequest(ctx context.Context, method, path string, body io.
 
 	resp, err := c.http.Do(req)
 	if err != nil {
-		return fmt.Errorf("api request: %w", err)
+		return sanitizeTransportError(err)
 	}
 	defer resp.Body.Close()
 

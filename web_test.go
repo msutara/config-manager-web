@@ -2,6 +2,7 @@ package web
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -119,6 +120,31 @@ func TestAuthLogin_EmptyToken(t *testing.T) {
 	}
 	if !strings.Contains(w.Header().Get("Location"), "error=invalid") {
 		t.Fatal("expected redirect to login with error")
+	}
+}
+
+func TestAuthLogin_OversizedBody(t *testing.T) {
+	h := newTestHandler(t, "http://localhost:9999", "my-token")
+	// Create a body larger than maxFormBytes (1 MB).
+	bigBody := strings.Repeat("x", 2<<20)
+	form := url.Values{"token": {bigBody}}
+	req := httptest.NewRequest(http.MethodPost, "/auth/login",
+		strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	// Oversized body must be rejected — redirect back to login (no 200 or cookie).
+	if w.Code != http.StatusSeeOther {
+		t.Fatalf("expected 303 redirect for oversized body, got %d", w.Code)
+	}
+	if loc := w.Header().Get("Location"); loc != "/login" {
+		t.Fatalf("expected redirect to /login, got %q", loc)
+	}
+	for _, c := range w.Result().Cookies() {
+		if c.Name == sessionCookieName {
+			t.Fatal("session cookie must not be set when body is oversized")
+		}
 	}
 }
 
@@ -471,5 +497,137 @@ func TestFetchPlugins_DoubleCheck(t *testing.T) {
 	calls := apiCalls.Load()
 	if calls != 1 {
 		t.Errorf("expected exactly 1 API call (double-check mutex), got %d", calls)
+	}
+}
+
+// ---------- Security header tests ----------
+
+func TestSecurityHeaders(t *testing.T) {
+	h := newTestHandler(t, "http://localhost:9999", "secret")
+	req := httptest.NewRequest(http.MethodGet, "/login", nil)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	checks := map[string]string{
+		"X-Frame-Options":        "DENY",
+		"X-Content-Type-Options": "nosniff",
+		"Referrer-Policy":        "same-origin",
+	}
+	for header, want := range checks {
+		got := w.Header().Get(header)
+		if got != want {
+			t.Errorf("header %s = %q, want %q", header, got, want)
+		}
+	}
+	csp := w.Header().Get("Content-Security-Policy")
+	if csp == "" {
+		t.Error("Content-Security-Policy header should be set")
+	}
+	if !strings.Contains(csp, "default-src 'self'") {
+		t.Error("CSP should contain default-src 'self'")
+	}
+}
+
+func TestSecurityHeaders_OnAuthenticatedRoute(t *testing.T) {
+	h := newTestHandler(t, "http://localhost:9999", "secret")
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req.AddCookie(&http.Cookie{Name: sessionCookieName, Value: "secret"})
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	if w.Header().Get("X-Frame-Options") != "DENY" {
+		t.Error("X-Frame-Options should be DENY on authenticated routes")
+	}
+	if w.Header().Get("X-Content-Type-Options") != "nosniff" {
+		t.Error("X-Content-Type-Options should be nosniff on authenticated routes")
+	}
+}
+
+// ---------- Token masking tests ----------
+
+func TestAPIClient_StringMasksToken(t *testing.T) {
+	c := &apiClient{baseURL: "http://localhost", token: "secret123"}
+
+	s := c.String()
+	if strings.Contains(s, "secret123") {
+		t.Error("String() should not contain the raw token")
+	}
+	if !strings.Contains(s, "REDACTED") {
+		t.Error("String() should contain REDACTED")
+	}
+	if !strings.Contains(s, "http://localhost") {
+		t.Error("String() should contain the baseURL")
+	}
+}
+
+func TestAPIClient_GoStringMasksToken(t *testing.T) {
+	c := &apiClient{baseURL: "http://localhost", token: "secret123"}
+
+	s := fmt.Sprintf("%#v", c)
+	if strings.Contains(s, "secret123") {
+		t.Error("GoString() should not contain the raw token")
+	}
+	if !strings.Contains(s, "REDACTED") {
+		t.Error("GoString() should contain REDACTED")
+	}
+}
+
+// ---------- Body size limit tests ----------
+
+func TestUpdateRun_BodySizeLimit(t *testing.T) {
+	api := mockAPI(t)
+	defer api.Close()
+
+	h := newTestHandler(t, api.URL, "")
+	// Create a body larger than maxFormBytes (1 MB).
+	bigBody := strings.Repeat("x", 2<<20)
+	form := url.Values{"type": {bigBody}}
+
+	req := httptest.NewRequest(http.MethodPost, "/update/run",
+		strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	body := w.Body.String()
+	if !strings.Contains(body, "Request too large") && w.Code != http.StatusRequestEntityTooLarge {
+		t.Errorf("expected body size error, got status %d body: %s", w.Code, body)
+	}
+}
+
+// ---------- Sanitized transport error tests ----------
+
+func TestSanitizeTransportError_StripsURL(t *testing.T) {
+	origErr := &url.Error{
+		Op:  "Get",
+		URL: "http://internal-api:9090/secret/path",
+		Err: fmt.Errorf("connection refused"),
+	}
+	sanitized := sanitizeTransportError(origErr)
+	if sanitized == nil {
+		t.Fatal("expected non-nil error")
+	}
+	if strings.Contains(sanitized.Error(), "internal-api") {
+		t.Error("sanitized error should not contain the internal URL")
+	}
+	if strings.Contains(sanitized.Error(), "/secret/path") {
+		t.Error("sanitized error should not contain the URL path")
+	}
+	if !strings.Contains(sanitized.Error(), "connection refused") {
+		t.Error("sanitized error should contain the underlying cause")
+	}
+}
+
+func TestSanitizeTransportError_NilPassthrough(t *testing.T) {
+	if sanitizeTransportError(nil) != nil {
+		t.Error("nil input should return nil")
+	}
+}
+
+func TestSanitizeTransportError_NonURLError(t *testing.T) {
+	err := fmt.Errorf("some generic error")
+	got := sanitizeTransportError(err)
+	if got != err {
+		t.Error("non-url.Error should pass through unchanged")
 	}
 }

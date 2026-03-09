@@ -50,6 +50,10 @@ func (h *Handler) handleLogin(w http.ResponseWriter, r *http.Request) {
 
 // handleAuthLogin validates the submitted token and sets a session cookie.
 func (h *Handler) handleAuthLogin(w http.ResponseWriter, r *http.Request) {
+	if err := parseFormLimited(w, r); err != nil {
+		http.Redirect(w, r, "/login", http.StatusSeeOther)
+		return
+	}
 	token := r.FormValue("token")
 	if token == "" || !h.validToken(token) {
 		slog.Warn("web: failed login attempt", "remote", r.RemoteAddr)

@@ -226,6 +226,7 @@ func TestValidateRoutePrefix(t *testing.T) {
 		{"traversal literal", "/api/../secret", true},
 		{"traversal encoded", "/api/%2e%2e/secret", true},
 		{"double encoded traversal", "/api/%252e%252e/secret", true},
+		{"backslash", `/foo\bar`, true},
 		{"control character", "/api/\x00foo", true},
 		{"clean prefix", "/api/v1/plugins/network", false},
 		{"dot segment single", "/api/./v1", true},
@@ -4194,5 +4195,454 @@ func TestListJobRuns_ServerError(t *testing.T) {
 	_, err := c.listJobRuns(context.Background(), "update.full", 20, 0)
 	if err == nil {
 		t.Fatal("expected error for 500 response")
+	}
+}
+
+// ---------- TEST-03: Fragment handler tests ----------
+
+func TestDashboardFragment_APIError(t *testing.T) {
+	// API always returns 500 — dashboard fragment should render error message.
+	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer api.Close()
+
+	h := newTestHandler(t, api.URL, "")
+	req := httptest.NewRequest(http.MethodGet, "/fragments/dashboard", nil)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", w.Code)
+	}
+	body := w.Body.String()
+	if !strings.Contains(body, "Failed to load system info") {
+		t.Fatal("dashboard fragment should show error message when API returns 500")
+	}
+	if !strings.Contains(body, "alert-error") {
+		t.Fatal("dashboard fragment should render error alert")
+	}
+}
+
+func TestUpdateFragment_LogTruncation(t *testing.T) {
+	// API returns a log larger than 256 KB with multi-byte UTF-8 characters
+	// near the boundary. Verify the fragment truncates with "…(truncated)".
+	bigLog := strings.Repeat("A", 256*1024) + "日本語" // push past 256 KB
+	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/v1/plugins/update/status":
+			json.NewEncoder(w).Encode([]PendingUpdate{})
+		case "/api/v1/plugins/update/logs":
+			json.NewEncoder(w).Encode(RunStatus{
+				Type:   "full",
+				Status: "completed",
+				Log:    bigLog,
+			})
+		case "/api/v1/plugins/update/config":
+			json.NewEncoder(w).Encode(UpdateConfig{SecurityAvailable: boolPtr(false)})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer api.Close()
+
+	h := newTestHandler(t, api.URL, "")
+	req := httptest.NewRequest(http.MethodGet, "/fragments/update", nil)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", w.Code)
+	}
+	body := w.Body.String()
+	if !strings.Contains(body, "…(truncated)") {
+		t.Fatal("oversized log should be truncated with UTF-8 boundary awareness")
+	}
+	// The full multi-byte suffix should NOT appear (it's past the 256 KB boundary).
+	if strings.Contains(body, "日本語") {
+		t.Fatal("multi-byte characters past the truncation boundary should not appear")
+	}
+}
+
+func TestNetworkFragment_PartialAPIError(t *testing.T) {
+	// Interfaces succeeds, status returns 500, DNS succeeds.
+	// Verify mixed results: interface data shown, status error shown.
+	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/v1/plugins/network/interfaces":
+			json.NewEncoder(w).Encode([]NetworkInterface{
+				{Name: "eth0", MAC: "aa:bb:cc:dd:ee:ff", State: "up", IP: "10.0.0.5/24"},
+			})
+		case "/api/v1/plugins/network/status":
+			w.WriteHeader(http.StatusInternalServerError)
+		case "/api/v1/plugins/network/dns":
+			json.NewEncoder(w).Encode(DNSConfig{
+				Nameservers: []string{"8.8.8.8"},
+			})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer api.Close()
+
+	h := newTestHandler(t, api.URL, "")
+	req := httptest.NewRequest(http.MethodGet, "/fragments/network", nil)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", w.Code)
+	}
+	body := w.Body.String()
+	// Status section should show error.
+	if !strings.Contains(body, "Failed to load network status") {
+		t.Fatal("should show network status error when that API call fails")
+	}
+	// Interfaces should still render.
+	if !strings.Contains(body, "eth0") {
+		t.Fatal("interface data should render despite status API failure")
+	}
+	if !strings.Contains(body, "10.0.0.5/24") {
+		t.Fatal("interface IP should render despite status API failure")
+	}
+	// DNS should still render.
+	if !strings.Contains(body, "8.8.8.8") {
+		t.Fatal("DNS data should render despite status API failure")
+	}
+}
+
+// ---------- TEST-04: Progress polling retry limit ----------
+
+func TestProgress_MaxRetriesExceeded(t *testing.T) {
+	// Simulate >30 consecutive API errors by passing retry=31 (above maxErrorRetries).
+	// The response should indicate "failed" status and stop polling.
+	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		http.Error(w, "internal error", http.StatusInternalServerError)
+	}))
+	defer api.Close()
+
+	h := newTestHandler(t, api.URL, "")
+	req := httptest.NewRequest(http.MethodGet,
+		"/progress?job=update.full&retry=31", nil)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	body := w.Body.String()
+	if !strings.Contains(body, "failed") {
+		t.Fatal("response should indicate failed status after exceeding max retries")
+	}
+	if !strings.Contains(body, "too many retries") {
+		t.Fatal("response should include retry cap message")
+	}
+	// Must NOT continue polling.
+	if strings.Contains(body, "hx-trigger") {
+		t.Fatal("response must not include hx-trigger after exceeding max retries")
+	}
+	if strings.Contains(body, "retrying") {
+		t.Fatal("response must not show retrying after exceeding max retries")
+	}
+}
+
+// ---------- TEST-05: cleanPluginPath additional edge cases ----------
+
+func TestCleanPluginPath_AdditionalEdgeCases(t *testing.T) {
+	tests := []struct {
+		name   string
+		prefix string
+		path   string
+		want   string
+	}{
+		{"raw null byte in path", "/api/v1/plugins/update", "/plugin\x00path", ""},
+		{"backslash in path", "/api/v1/plugins/update", "/plugin\\subpath", ""},
+		{"double leading slash", "/api/v1/plugins/update", "//status", "/api/v1/plugins/update/status"},
+		{"absolute path appended", "/api/v1/plugins/update", "/etc/passwd", "/api/v1/plugins/update/etc/passwd"},
+		{"raw newline in path", "/api/v1/plugins/update", "/path\ninjection", ""},
+		{"raw tab in path", "/api/v1/plugins/update", "/path\ttab", ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := cleanPluginPath(tt.prefix, tt.path)
+			if got != tt.want {
+				t.Errorf("cleanPluginPath(%q, %q) = %q, want %q", tt.prefix, tt.path, got, tt.want)
+			}
+		})
+	}
+}
+
+// ---------- TEST-16: Auth/session edge cases ----------
+
+func TestAuthLogin_WrongToken(t *testing.T) {
+	h := newTestHandler(t, "http://localhost:9999", "correct-token")
+	form := "token=wrong-token"
+	req := httptest.NewRequest(http.MethodPost, "/auth/login",
+		strings.NewReader(form))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	if w.Code != http.StatusSeeOther {
+		t.Fatalf("expected 303 redirect, got %d", w.Code)
+	}
+	loc := w.Header().Get("Location")
+	if !strings.Contains(loc, "error=invalid") {
+		t.Fatalf("expected redirect to login with error=invalid, got %q", loc)
+	}
+	// Verify no session cookie was set.
+	for _, c := range w.Result().Cookies() {
+		if c.Name == sessionCookieName && c.MaxAge > 0 {
+			t.Fatal("session cookie should NOT be set for wrong token")
+		}
+	}
+}
+
+func TestRequireSession_ExpiredCookie(t *testing.T) {
+	h := newTestHandler(t, "http://localhost:9999", "valid-token")
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	// Simulate an expired/invalid session cookie (value doesn't match token).
+	req.AddCookie(&http.Cookie{Name: sessionCookieName, Value: "expired-or-invalid"})
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	if w.Code != http.StatusSeeOther {
+		t.Fatalf("expected 303 redirect for expired cookie, got %d", w.Code)
+	}
+	if w.Header().Get("Location") != "/login" {
+		t.Fatalf("expected redirect to /login, got %s", w.Header().Get("Location"))
+	}
+}
+
+func TestRequireSession_NoCookie(t *testing.T) {
+	h := newTestHandler(t, "http://localhost:9999", "valid-token")
+	req := httptest.NewRequest(http.MethodGet, "/update", nil)
+	// No cookie attached.
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	if w.Code != http.StatusSeeOther {
+		t.Fatalf("expected 303 redirect for missing cookie, got %d", w.Code)
+	}
+	if w.Header().Get("Location") != "/login" {
+		t.Fatalf("expected redirect to /login, got %s", w.Header().Get("Location"))
+	}
+}
+
+// ---------- Pagination boundary tests ----------
+
+func TestHistoryFragment_ZeroOffset(t *testing.T) {
+	// offset=0 should have HasPrev=false (no Previous button).
+	api := mockAPI(t)
+	defer api.Close()
+
+	h := newTestHandler(t, api.URL, "")
+	req := httptest.NewRequest(http.MethodGet,
+		"/fragments/history?job=update.full&limit=20&offset=0", nil)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", w.Code)
+	}
+	body := w.Body.String()
+	if strings.Contains(body, "Previous") {
+		t.Error("offset=0 should NOT show Previous button")
+	}
+}
+
+func TestHistoryFragment_ExactMultiple(t *testing.T) {
+	// When API returns exactly `limit` items, HasNext should be true.
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/v1/jobs/update.full/runs", func(w http.ResponseWriter, r *http.Request) {
+		limit := 3
+		if v := r.URL.Query().Get("limit"); v != "" {
+			fmt.Sscanf(v, "%d", &limit)
+		}
+		// Return exactly `limit` items.
+		runs := make([]JobRun, limit)
+		for i := range runs {
+			runs[i] = JobRun{
+				JobID:     "update.full",
+				Status:    "completed",
+				StartedAt: fmt.Sprintf("2026-02-%02dT10:00:00Z", i+1),
+				Duration:  "1m",
+			}
+		}
+		json.NewEncoder(w).Encode(runs)
+	})
+	api := httptest.NewServer(mux)
+	defer api.Close()
+
+	h := newTestHandler(t, api.URL, "")
+	req := httptest.NewRequest(http.MethodGet,
+		"/fragments/history?job=update.full&limit=3&offset=0", nil)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", w.Code)
+	}
+	body := w.Body.String()
+	if !strings.Contains(body, "Next") {
+		t.Error("exact multiple of limit should show Next button (HasNext=true)")
+	}
+}
+
+func TestHistoryFragment_LessThanLimit(t *testing.T) {
+	// When API returns fewer items than limit, HasNext should be false.
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/v1/jobs/update.full/runs", func(w http.ResponseWriter, _ *http.Request) {
+		// Return 1 item regardless of requested limit.
+		runs := []JobRun{
+			{JobID: "update.full", Status: "completed", StartedAt: "2026-03-01T10:00:00Z", Duration: "1m"},
+		}
+		json.NewEncoder(w).Encode(runs)
+	})
+	api := httptest.NewServer(mux)
+	defer api.Close()
+
+	h := newTestHandler(t, api.URL, "")
+	req := httptest.NewRequest(http.MethodGet,
+		"/fragments/history?job=update.full&limit=20&offset=0", nil)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", w.Code)
+	}
+	body := w.Body.String()
+	if strings.Contains(body, "Next") {
+		t.Error("fewer items than limit should NOT show Next button (HasNext=false)")
+	}
+}
+
+func TestHistoryFragment_NegativeOffset(t *testing.T) {
+	// Negative offset should clamp to 0 (no Previous button, normal rendering).
+	api := mockAPI(t)
+	defer api.Close()
+
+	h := newTestHandler(t, api.URL, "")
+	req := httptest.NewRequest(http.MethodGet,
+		"/fragments/history?job=update.full&limit=20&offset=-5", nil)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", w.Code)
+	}
+	body := w.Body.String()
+	if strings.Contains(body, "Previous") {
+		t.Error("negative offset (clamped to 0) should NOT show Previous button")
+	}
+	// Should still render data.
+	if !strings.Contains(body, "2026-02-27") {
+		t.Error("should render run data with clamped offset")
+	}
+}
+
+// ---------- Input validation edge cases ----------
+
+func TestUpdateRun_InvalidType(t *testing.T) {
+	// Invalid type should default to "full" per the switch statement.
+	var gotBody string
+	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		gotBody = string(body)
+		w.WriteHeader(http.StatusAccepted)
+	}))
+	defer api.Close()
+
+	h := newTestHandler(t, api.URL, "")
+	req := httptest.NewRequest(http.MethodPost, "/update/run",
+		strings.NewReader("type=invalid-type"))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", w.Code)
+	}
+	if !strings.Contains(gotBody, `"job_id":"update.full"`) {
+		t.Fatalf("invalid type should default to full, got API body: %s", gotBody)
+	}
+	if !strings.Contains(w.Body.String(), "update.full") {
+		t.Fatal("progress fragment should show update.full job ID")
+	}
+}
+
+func TestUpdateRun_EmptyType(t *testing.T) {
+	// Empty type should default to "full".
+	var gotBody string
+	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		gotBody = string(body)
+		w.WriteHeader(http.StatusAccepted)
+	}))
+	defer api.Close()
+
+	h := newTestHandler(t, api.URL, "")
+	req := httptest.NewRequest(http.MethodPost, "/update/run",
+		strings.NewReader("type="))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", w.Code)
+	}
+	if !strings.Contains(gotBody, `"job_id":"update.full"`) {
+		t.Fatalf("empty type should default to full, got API body: %s", gotBody)
+	}
+}
+
+func TestNetworkSetStaticIP_InvalidCIDR(t *testing.T) {
+	// POST with a malformed CIDR address — the API should reject it.
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/v1/plugins/network/interfaces/eth0", func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusBadRequest)
+		w.Write([]byte(`{"error":{"message":"invalid CIDR address: not-a-cidr"}}`))
+	})
+	api := httptest.NewServer(mux)
+	defer api.Close()
+
+	h := newTestHandler(t, api.URL, "")
+	form := "name=eth0&address=not-a-cidr&gateway=10.0.0.1&netmask=255.255.255.0"
+	req := httptest.NewRequest(http.MethodPost, "/network/set-static-ip",
+		strings.NewReader(form))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	body := w.Body.String()
+	if !strings.Contains(body, "Failed to set static IP") {
+		t.Fatal("should show error when API rejects invalid CIDR")
+	}
+	if !strings.Contains(body, "alert-error") {
+		t.Fatal("should render error alert for invalid CIDR")
+	}
+}
+
+func TestNetworkSetDNS_InvalidIP(t *testing.T) {
+	// POST with non-IP DNS server string — the API should reject it.
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/v1/plugins/network/dns", func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusBadRequest)
+		w.Write([]byte(`{"error":{"message":"invalid DNS server: not-an-ip"}}`))
+	})
+	api := httptest.NewServer(mux)
+	defer api.Close()
+
+	h := newTestHandler(t, api.URL, "")
+	form := "nameservers=not-an-ip"
+	req := httptest.NewRequest(http.MethodPost, "/network/set-dns",
+		strings.NewReader(form))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	body := w.Body.String()
+	if !strings.Contains(body, "Failed to set DNS") {
+		t.Fatal("should show error when API rejects invalid DNS IP")
+	}
+	if !strings.Contains(body, "alert-error") {
+		t.Fatal("should render error alert for invalid DNS IP")
 	}
 }
