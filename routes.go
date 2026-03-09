@@ -157,6 +157,10 @@ func validateRoutePrefix(prefix string) error {
 	if strings.Contains(decoded, "%") {
 		return fmt.Errorf("route prefix contains suspicious encoding")
 	}
+	// Reject backslashes (some proxies normalize \ to /).
+	if strings.Contains(decoded, "\\") {
+		return fmt.Errorf("route prefix contains backslash")
+	}
 	if strings.Contains(decoded, "..") {
 		return fmt.Errorf("route prefix contains path traversal")
 	}

@@ -226,6 +226,7 @@ func TestValidateRoutePrefix(t *testing.T) {
 		{"traversal literal", "/api/../secret", true},
 		{"traversal encoded", "/api/%2e%2e/secret", true},
 		{"double encoded traversal", "/api/%252e%252e/secret", true},
+		{"backslash", `/foo\bar`, true},
 		{"control character", "/api/\x00foo", true},
 		{"clean prefix", "/api/v1/plugins/network", false},
 		{"dot segment single", "/api/./v1", true},
