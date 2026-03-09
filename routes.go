@@ -754,7 +754,7 @@ func validateWebCronExpr(expr string) error {
 	fields := strings.Fields(trimmed)
 	if len(fields) != 5 {
 		return fmt.Errorf(
-			"Invalid schedule: expected 5 fields (minute hour dom month dow), got %d"+
+			"invalid schedule: expected 5 fields (minute hour dom month dow), got %d"+
 				"; if your expression has a seconds field, remove it",
 			len(fields))
 	}
