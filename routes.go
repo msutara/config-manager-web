@@ -352,7 +352,13 @@ func (h *Handler) handleGenericAction(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		slog.Error("web: generic plugin action failed",
 			"plugin", name, "action", action, "error", err)
-		safeErr := html.EscapeString(err.Error())
+		var safeErr string
+		var apiErr *APIError
+		if errors.As(err, &apiErr) {
+			safeErr = html.EscapeString(apiErr.Message)
+		} else {
+			safeErr = "Action failed — server unreachable or returned an error"
+		}
 		//nolint:errcheck // HTTP response write
 		_, _ = w.Write([]byte(`<div class="alert alert-error"><strong>Action failed</strong>` +
 			`<details class="error-details"><summary>Show details</summary>` +
@@ -486,6 +492,11 @@ func (h *Handler) handleUpdateFragment(w http.ResponseWriter, r *http.Request) {
 // synchronous /run endpoint) so the scheduler records the run and progress
 // polling works correctly.
 func (h *Handler) handleUpdateRun(w http.ResponseWriter, r *http.Request) {
+	if err := parseFormLimited(w, r); err != nil {
+		writeFormError(w, err)
+		return
+	}
+
 	updateType := r.FormValue("type")
 	// Validate against allowlist to prevent XSS.
 	switch updateType {
@@ -522,15 +533,12 @@ func (h *Handler) handleUpdateRun(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Return progress polling fragment. HTMX will auto-poll until done.
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	data := map[string]string{
 		"JobID":     jobID,
 		"Status":    "running",
 		"ReturnURL": "/update",
 	}
-	if err := h.templates["progress.html"].Execute(w, data); err != nil {
-		slog.Error("web: failed to render progress", "error", err)
-	}
+	h.renderFragment(w, "progress.html", data)
 }
 
 // validJobID matches job IDs in the {plugin}.{job} dot-notation.
@@ -637,7 +645,6 @@ func (h *Handler) handleProgress(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	data := map[string]string{
 		"JobID":      jobID,
 		"Status":     run.Status,
@@ -647,9 +654,7 @@ func (h *Handler) handleProgress(w http.ResponseWriter, r *http.Request) {
 		"ReturnURL":  returnURL,
 		"RetryCount": strconv.Itoa(retryCount),
 	}
-	if err := h.templates["progress.html"].Execute(w, data); err != nil {
-		slog.Error("web: failed to render progress", "error", err)
-	}
+	h.renderFragment(w, "progress.html", data)
 }
 
 // ---------- Job history ----------
@@ -746,9 +751,8 @@ func validateWebCronExpr(expr string) error {
 // handleUpdateSettings saves individual update plugin settings via the
 // settings API and returns an htmx HTML fragment with the result.
 func (h *Handler) handleUpdateSettings(w http.ResponseWriter, r *http.Request) {
-	if err := r.ParseForm(); err != nil {
-		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		_, _ = w.Write([]byte(`<div class="alert alert-error">Invalid form data</div>`)) //nolint:errcheck // HTTP write
+	if err := parseFormLimited(w, r); err != nil {
+		writeFormError(w, err)
 		return
 	}
 

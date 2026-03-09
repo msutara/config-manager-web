@@ -128,6 +128,17 @@ func titleCase(s string) string {
 	return strings.Join(result, " ")
 }
 
+// securityHeaders adds standard security response headers to every response.
+func securityHeaders(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("X-Frame-Options", "DENY")
+		w.Header().Set("X-Content-Type-Options", "nosniff")
+		w.Header().Set("Referrer-Policy", "same-origin")
+		w.Header().Set("Content-Security-Policy", "default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'")
+		next.ServeHTTP(w, r)
+	})
+}
+
 // NewHandler creates a web UI handler that renders pages and proxies actions
 // to the CM JSON API at apiURL. When authToken is non-empty, a login page
 // gates access via cookie-based sessions.
@@ -181,14 +192,19 @@ func NewHandler(apiURL, authToken string) http.Handler {
 	}
 
 	h.router = chi.NewRouter()
+	h.router.Use(securityHeaders)
 
-	// Static assets — no auth required.
+	// Static assets — no auth required. Wrapped with cache headers.
 	staticSub, err := fs.Sub(staticFS, "static")
 	if err != nil {
 		panic("fs.Sub static: " + err.Error())
 	}
+	fileServer := http.FileServer(http.FS(staticSub))
 	h.router.Handle("/static/*", http.StripPrefix("/static/",
-		http.FileServer(http.FS(staticSub))))
+		http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Cache-Control", "public, max-age=3600")
+			fileServer.ServeHTTP(w, r)
+		})))
 
 	// Login page — no auth required.
 	h.router.Get("/login", h.handleLogin)

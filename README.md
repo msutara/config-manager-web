@@ -24,6 +24,8 @@ headless Debian-based nodes (Raspbian Bookworm ARM, Debian Bullseye slim).
   htmx lazy-loads data from fragment endpoints for perceived performance
 - Dynamic plugin sidebar — auto-discovers plugins from the core API registry
 - Sidebar system info — hostname, uptime, and API connection indicator
+- Job history — paginated run history table with status icons, Previous/Next
+  navigation
 
 ## Architecture
 
@@ -66,11 +68,12 @@ descriptive error; the constant is a single-line change if it needs tuning.
 
 ### Request body limit
 
-All POST handlers for network write operations use `MaxBytesReader` to cap
-incoming form data at **1 MB** (`maxFormBytes` in `routes_network.go`). This
-prevents oversized submissions from consuming memory on resource-constrained
-ARM devices. Requests exceeding the limit receive an inline error with a toast
-notification.
+All form-handling POST handlers — including the unauthenticated `/auth/login`
+endpoint — use `MaxBytesReader` to cap incoming form data at **1 MB**
+(`maxFormBytes` in `routes_network.go`). This prevents oversized submissions
+from consuming memory on resource-constrained ARM devices. Requests exceeding
+the limit are redirected back to the login page or receive an inline error with
+a toast notification.
 
 ### Network write error handling
 
@@ -122,7 +125,28 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
 
 ## Security
 
-See [SECURITY.md](SECURITY.md) for vulnerability reporting.
+The web dashboard applies multiple layers of defense when handling untrusted
+data from the Config Manager API and plugin registry:
+
+- **Input sanitization** — All API responses are sanitized before rendering in
+  HTML templates, preventing XSS and injection attacks.
+- **Path validation** — Plugin paths are validated against directory-traversal
+  attacks (including percent-encoded variants such as `%2e%2e`) before building
+  API requests. Route prefixes must start with `/`, must not contain `..`
+  sequences, and must not contain control characters.
+- **Request body size limits** — All form-handling POST handlers (including the
+  login endpoint) use `MaxBytesReader` to cap incoming form data at **1 MB**
+  (`maxFormBytes`), preventing oversized submissions from consuming memory on
+  resource-constrained ARM devices.
+- **Response body size limits** — API responses capped at **2 MB** via
+  `LimitReader` to prevent unbounded memory allocation on devices with limited RAM.
+- **Security response headers** — Every response includes `X-Frame-Options:
+  DENY`, `X-Content-Type-Options: nosniff`, `Content-Security-Policy`, and
+  `Referrer-Policy: same-origin`.
+- **Static asset caching** — Static files are served with `Cache-Control`
+  headers to reduce redundant requests and improve load times.
+
+For vulnerability reporting see [SECURITY.md](SECURITY.md).
 
 ## License
 
