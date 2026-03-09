@@ -360,7 +360,13 @@ func (h *Handler) handleGenericAction(w http.ResponseWriter, r *http.Request) {
 		if errors.As(err, &apiErr) {
 			safeErr = html.EscapeString(apiErr.Message)
 		} else {
-			safeErr = html.EscapeString(err.Error())
+			// Show only the terminal error reason (e.g. "connection refused",
+			// "i/o timeout") without leaking internal IPs/ports from transport errors.
+			msg := err.Error()
+			if idx := strings.LastIndex(msg, ": "); idx >= 0 {
+				msg = msg[idx+2:]
+			}
+			safeErr = html.EscapeString(msg)
 		}
 		//nolint:errcheck // HTTP response write
 		_, _ = w.Write([]byte(`<div class="alert alert-error"><strong>Action failed</strong>` +
