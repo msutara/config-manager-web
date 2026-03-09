@@ -4352,7 +4352,7 @@ func TestCleanPluginPath_AdditionalEdgeCases(t *testing.T) {
 		want   string
 	}{
 		{"raw null byte in path", "/api/v1/plugins/update", "/plugin\x00path", ""},
-		{"backslash in path", "/api/v1/plugins/update", "/plugin\\subpath", "/api/v1/plugins/update/plugin\\subpath"},
+		{"backslash in path", "/api/v1/plugins/update", "/plugin\\subpath", ""},
 		{"double leading slash", "/api/v1/plugins/update", "//status", "/api/v1/plugins/update/status"},
 		{"absolute path appended", "/api/v1/plugins/update", "/etc/passwd", "/api/v1/plugins/update/etc/passwd"},
 		{"raw newline in path", "/api/v1/plugins/update", "/path\ninjection", ""},

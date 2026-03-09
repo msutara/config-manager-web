@@ -117,7 +117,10 @@ func cleanPluginPath(routePrefix, epPath string) string {
 	if strings.Contains(decoded, "%") {
 		return ""
 	}
-	// Reject control characters (NUL, newlines, C1, etc.).
+	// Reject backslashes (some proxies normalize \ to /) and control characters.
+	if strings.Contains(decoded, "\\") {
+		return ""
+	}
 	for _, r := range decoded {
 		if unicode.IsControl(r) {
 			return ""
@@ -357,7 +360,7 @@ func (h *Handler) handleGenericAction(w http.ResponseWriter, r *http.Request) {
 		if errors.As(err, &apiErr) {
 			safeErr = html.EscapeString(apiErr.Message)
 		} else {
-			safeErr = "Action failed — server unreachable or returned an error"
+			safeErr = html.EscapeString(err.Error())
 		}
 		//nolint:errcheck // HTTP response write
 		_, _ = w.Write([]byte(`<div class="alert alert-error"><strong>Action failed</strong>` +
