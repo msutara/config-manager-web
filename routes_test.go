@@ -4152,11 +4152,14 @@ func TestUpdateFragment_ContainsHistoryLink(t *testing.T) {
 		t.Fatalf("expected 200, got %d", w.Code)
 	}
 	body := w.Body.String()
-	if !strings.Contains(body, "View Run History") {
-		t.Error("update fragment should contain 'View Run History' link")
+	if !strings.Contains(body, "Full Update History") {
+		t.Error("update fragment should contain 'Full Update History' link")
 	}
-	if !strings.Contains(body, "/history?job=update.") {
-		t.Error("update fragment should link to /history?job=update.*")
+	if !strings.Contains(body, "/history?job=update.full") {
+		t.Error("update fragment should link to /history?job=update.full")
+	}
+	if !strings.Contains(body, "/history?job=update.security") {
+		t.Error("update fragment should link to /history?job=update.security")
 	}
 }
 
