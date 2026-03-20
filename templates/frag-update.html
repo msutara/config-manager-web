@@ -62,8 +62,8 @@
     </div>
 </div>
 {{ end }}
-<p class="detail"><a href="/history?job=update.full">Full Update History</a> | <a href="/history?job=update.security">Security Update History</a></p>
 {{ end }}
+<p class="detail"><a href="/history?job=update.full">Full Update History</a>{{ if and (not .ConfigErr) (derefBool .Config.SecurityAvailable) }} | <a href="/history?job=update.security">Security Update History</a>{{ end }}</p>
 
 <h3>Actions</h3>
 

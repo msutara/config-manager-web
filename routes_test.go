@@ -3244,6 +3244,42 @@ func TestUpdateFragment_EmptyPendingHidesTable(t *testing.T) {
 	}
 }
 
+func TestUpdateFragment_NoRunsYetEmptyState(t *testing.T) {
+	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/v1/plugins/update/status":
+			json.NewEncoder(w).Encode([]PendingUpdate{})
+		case "/api/v1/plugins/update/logs":
+			json.NewEncoder(w).Encode(RunStatus{})
+		case "/api/v1/plugins/update/config":
+			json.NewEncoder(w).Encode(UpdateConfig{SecurityAvailable: boolPtr(true)})
+		case "/api/v1/plugins":
+			json.NewEncoder(w).Encode([]map[string]any{})
+		case "/api/v1/node":
+			json.NewEncoder(w).Encode(NodeInfo{Hostname: "test"})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer api.Close()
+
+	h := newTestHandler(t, api.URL, "")
+	req := httptest.NewRequest(http.MethodGet, "/fragments/update", nil)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", w.Code)
+	}
+	body := w.Body.String()
+	if !strings.Contains(body, "No runs yet") {
+		t.Error("empty-state 'No runs yet' should display when no job has been run")
+	}
+	if !strings.Contains(body, "Full Update History") {
+		t.Error("history link should be visible even with no runs")
+	}
+}
+
 func TestUpdateFragment_SecurityShownWhenAvailable(t *testing.T) {
 	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
@@ -3326,6 +3362,12 @@ func TestUpdateFragment_SecurityHiddenWhenUnavailable(t *testing.T) {
 	if strings.Contains(w.Body.String(), "View log output") {
 		t.Fatal("log viewer should be absent when RunStatus.Log is empty")
 	}
+	if strings.Contains(w.Body.String(), "Security Update History") {
+		t.Fatal("security history link should be hidden when SecurityAvailable is false")
+	}
+	if !strings.Contains(w.Body.String(), "Full Update History") {
+		t.Fatal("full update history link should always be present")
+	}
 }
 
 func TestUpdateFragment_SecurityHiddenWhenNil(t *testing.T) {
@@ -3404,6 +3446,9 @@ func TestUpdateFragment_PartialAPIFailure(t *testing.T) {
 	}
 	if !strings.Contains(body, "0 3 * * *") {
 		t.Fatal("config should render with partial failure")
+	}
+	if !strings.Contains(body, "Full Update History") {
+		t.Fatal("history links should render even when logs API fails")
 	}
 }
 
