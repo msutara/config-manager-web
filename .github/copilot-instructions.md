@@ -5,7 +5,7 @@
 Config Manager Web is the browser-based dashboard for Config Manager. It provides
 an htmx + Go html/template UI served alongside the JSON API on the same port (7788).
 
-Target platforms: Raspbian Bookworm (ARM), Debian Bullseye slim (ARM).
+Target platforms: Raspbian Bookworm (ARM64/ARMv7), Debian Bullseye slim (ARM64/ARMv7).
 
 ## Architecture
 
