@@ -4,7 +4,9 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"html/template"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -4771,5 +4773,124 @@ func TestIsBiDiControl(t *testing.T) {
 		if isBiDiControl(r) {
 			t.Errorf("isBiDiControl(%U) = true, want false", r)
 		}
+	}
+}
+
+func TestSanitizeBody(t *testing.T) {
+	tests := []struct {
+		name, in, want string
+	}{
+		{"plain text", "hello world", "hello world"},
+		{"preserves newlines", "line1\nline2\nline3", "line1\nline2\nline3"},
+		{"preserves tabs", "col1\tcol2\tcol3", "col1\tcol2\tcol3"},
+		{"preserves mixed whitespace", "heading\n\tindented\n\tmore", "heading\n\tindented\n\tmore"},
+		{"strips null byte", "abc\x00def", "abcdef"},
+		{"strips bell", "abc\x07def", "abcdef"},
+		{"strips ESC (ANSI prefix)", "\x1b[31mred\x1b[0m", "[31mred[0m"},
+		{"strips C1 controls", "abc\u0085\u009Bdef", "abcdef"},
+		{"strips DEL", "abc\x7Fdef", "abcdef"},
+		{"strips BiDi LRO", "abc\u202Ddef", "abcdef"},
+		{"strips BiDi RLO", "abc\u202Edef", "abcdef"},
+		{"strips BiDi LRI", "abc\u2066def", "abcdef"},
+		{"strips BiDi PDI", "abc\u2069def", "abcdef"},
+		{"strips BiDi LRE", "abc\u202Adef", "abcdef"},
+		{"strips BiDi RLE", "abc\u202Bdef", "abcdef"},
+		{"strips BiDi PDF", "abc\u202Cdef", "abcdef"},
+		{"strips BiDi RLI", "abc\u2067def", "abcdef"},
+		{"strips BiDi FSI", "abc\u2068def", "abcdef"},
+		{"strips LRM", "abc\u200Edef", "abcdef"},
+		{"strips RLM", "abc\u200Fdef", "abcdef"},
+		{"strips ALM", "abc\u061Cdef", "abcdef"},
+		{"mixed BiDi and newlines", "line1\u202E\nline2\u202D\n", "line1\nline2\n"},
+		{"only newlines", "\n\n\n", "\n\n\n"},
+		{"only tabs", "\t\t", "\t\t"},
+		{"preserves ZWJ", "abc\u200Ddef", "abc\u200Ddef"},
+		{"preserves emoji", "Hello 🌍!", "Hello 🌍!"},
+		{"log-like content", "2024-01-01 Starting update...\n\tPackage: vim\n\tStatus: ok\n", "2024-01-01 Starting update...\n\tPackage: vim\n\tStatus: ok\n"},
+		{"strips CR keeps LF", "line1\r\nline2", "line1\nline2"},
+		{"empty string", "", ""},
+		{"only controls", "\x00\x01\x02\x03", ""},
+		{"invalid UTF-8", "\xed\xa0\x80", "\ufffd\ufffd\ufffd"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := sanitizeBody(tc.in)
+			if got != tc.want {
+				t.Errorf("sanitizeBody(%q) = %q, want %q", tc.in, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestSanitizeErr(t *testing.T) {
+	tests := []struct {
+		name string
+		err  error
+		want string
+	}{
+		{"nil error", nil, ""},
+		{"plain error", errors.New("connection refused"), "connection refused"},
+		{"error with control chars", errors.New("fail\x00ed\x1b[31m"), "failed[31m"},
+		{"error with BiDi", errors.New("err\u202Eor"), "error"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := sanitizeErr(tc.err)
+			if got != tc.want {
+				t.Errorf("sanitizeErr(%v) = %q, want %q", tc.err, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestTemplateFuncMapRegistration(t *testing.T) {
+	tmpl := template.Must(template.New("test").Funcs(template.FuncMap{
+		"sanitize":     sanitizeForDisplay,
+		"sanitizeBody": sanitizeBody,
+	}).Parse(`{{ .Error | sanitize }}|{{ .Log | sanitizeBody }}`))
+
+	data := map[string]string{
+		"Error": "fail\u202Eed",
+		"Log":   "line1\n\x1b[31mred\x1b[0m\nline2",
+	}
+
+	var buf bytes.Buffer
+	if err := tmpl.Execute(&buf, data); err != nil {
+		t.Fatalf("template execute: %v", err)
+	}
+
+	got := buf.String()
+	want := "failed|line1\n[31mred[0m\nline2"
+	if got != want {
+		t.Errorf("template output = %q, want %q", got, want)
+	}
+}
+
+func TestTemplateSanitizeConditional(t *testing.T) {
+	// Verify that {{ if (.Field | sanitize) }} works correctly:
+	// empty string after sanitization is falsy in Go templates.
+	tmpl := template.Must(template.New("cond").Funcs(template.FuncMap{
+		"sanitize": sanitizeForDisplay,
+	}).Parse(`{{ if (.Error | sanitize) }}HAS_ERROR{{ else }}NO_ERROR{{ end }}`))
+
+	tests := []struct {
+		name, input, want string
+	}{
+		{"real error", "connection refused", "HAS_ERROR"},
+		{"empty string", "", "NO_ERROR"},
+		{"only control chars", "\x00\x1b\u202E", "NO_ERROR"},
+		{"mixed keeps text", "err\u202Eor", "HAS_ERROR"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			var buf bytes.Buffer
+			data := map[string]string{"Error": tc.input}
+			if err := tmpl.Execute(&buf, data); err != nil {
+				t.Fatalf("execute: %v", err)
+			}
+			if got := buf.String(); got != tc.want {
+				t.Errorf("input %q → %q, want %q", tc.input, got, tc.want)
+			}
+		})
 	}
 }

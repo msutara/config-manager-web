@@ -1,5 +1,5 @@
 {{ if .Error }}
-<div class="alert alert-error">Failed to load job history: {{ .Error }} <button class="btn btn-sm" onclick="htmx.trigger(document.getElementById('page-data'),'retry')">Retry</button></div>
+<div class="alert alert-error">Failed to load job history: {{ .Error | sanitize }} <button class="btn btn-sm" onclick="htmx.trigger(document.getElementById('page-data'),'retry')">Retry</button></div>
 {{ else if and (not .Runs) (not .HasPrev) }}
 <p>No runs recorded for this job.</p>
 {{ else }}
@@ -19,7 +19,7 @@
             <td>{{ if eq .Status "completed" }}<span title="Completed">✓</span>{{ else if eq .Status "failed" }}<span title="Failed">✗</span>{{ else }}{{ .Status }}{{ end }}</td>
             <td>{{ .StartedAt }}</td>
             <td>{{ .Duration }}</td>
-            <td>{{ .Error }}</td>
+            <td>{{ .Error | sanitize }}</td>
         </tr>
         {{ end }}
     </tbody>

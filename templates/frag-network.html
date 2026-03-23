@@ -1,5 +1,5 @@
 {{ if .StatusErr }}
-<div class="alert alert-error">Failed to load network status: {{ .StatusErr }} <button class="btn btn-sm" onclick="htmx.trigger(document.getElementById('page-data'),'retry')">Retry</button></div>
+<div class="alert alert-error">Failed to load network status: {{ .StatusErr | sanitize }} <button class="btn btn-sm" onclick="htmx.trigger(document.getElementById('page-data'),'retry')">Retry</button></div>
 {{ else }}
 <div class="card-grid">
     <div class="card">
@@ -28,7 +28,7 @@
 <div id="network-result"></div>
 
 {{ if .IfaceErr }}
-<div class="alert alert-error">Failed to load interfaces: {{ .IfaceErr }}</div>
+<div class="alert alert-error">Failed to load interfaces: {{ .IfaceErr | sanitize }}</div>
 {{ else if .Ifaces }}
 <table class="data-table">
     <thead>

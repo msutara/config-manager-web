@@ -4,9 +4,9 @@
 <div class="card">
     <h3>{{ .Description }}</h3>
     {{ if .Error }}
-    <div class="alert alert-error">{{ .Error }}</div>
+    <div class="alert alert-error">{{ .Error | sanitize }}</div>
     {{ else }}
-    <pre>{{ .Data }}</pre>
+    <pre>{{ .Data | sanitizeBody }}</pre>
     {{ end }}
 </div>
 {{ end }}

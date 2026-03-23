@@ -1,5 +1,5 @@
 {{ if .NodeErr }}
-<div class="alert alert-error">Failed to load system info: {{ .NodeErr }} <button class="btn btn-sm" onclick="htmx.trigger(document.getElementById('page-data'),'retry')">Retry</button></div>
+<div class="alert alert-error">Failed to load system info: {{ .NodeErr | sanitize }} <button class="btn btn-sm" onclick="htmx.trigger(document.getElementById('page-data'),'retry')">Retry</button></div>
 {{ else }}
 <div class="card-grid">
     <div class="card">
