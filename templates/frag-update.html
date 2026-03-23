@@ -1,5 +1,5 @@
 {{ if .StatusErr }}
-<div class="alert alert-error">Failed to load pending updates: {{ .StatusErr }} <button class="btn btn-sm" onclick="htmx.trigger(document.getElementById('page-data'),'retry')">Retry</button></div>
+<div class="alert alert-error">Failed to load pending updates: {{ .StatusErr | sanitize }} <button class="btn btn-sm" onclick="htmx.trigger(document.getElementById('page-data'),'retry')">Retry</button></div>
 {{ else }}
 <div class="card-grid">
     <div class="card">
@@ -51,7 +51,7 @@
 {{ if .RunStatus.Log }}
 <details class="log-viewer">
     <summary>View log output</summary>
-    <pre class="log-pre">{{ .RunStatus.Log }}</pre>
+    <pre class="log-pre">{{ .RunStatus.Log | sanitizeBody }}</pre>
 </details>
 {{ end }}
 {{ else }}

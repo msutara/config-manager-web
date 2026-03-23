@@ -154,6 +154,8 @@ func NewHandler(apiURL, authToken string) http.Handler {
 	funcMap := template.FuncMap{
 		"formatUptime": formatUptime,
 		"title":        titleCase,
+		"sanitize":     sanitizeForDisplay,
+		"sanitizeBody": sanitizeBody,
 		"derefBool": func(b *bool) bool {
 			if b == nil {
 				return false

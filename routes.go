@@ -44,10 +44,33 @@ func sanitizeForDisplay(s string) string {
 	return b.String()
 }
 
+// sanitizeBody strips control and BiDi characters but preserves newlines and
+// tabs so that multiline content (logs, JSON) can be rendered inside <pre>
+// blocks. Mirrors the TUI implementation for parity.
+func sanitizeBody(s string) string {
+	var b strings.Builder
+	b.Grow(len(s))
+	for _, r := range s {
+		if r == '\n' || r == '\t' || (!unicode.IsControl(r) && !isBiDiControl(r)) {
+			_, _ = b.WriteRune(r) //nolint:errcheck // strings.Builder.WriteRune never fails
+		}
+	}
+	return b.String()
+}
+
 // safeHTML strips control/BiDi characters and then HTML-escapes for safe
 // interpolation into HTML output.
 func safeHTML(s string) string {
 	return html.EscapeString(sanitizeForDisplay(s))
+}
+
+// sanitizeErr returns the sanitised string representation of an error, or ""
+// if the error is nil. Suitable for passing to templates as defense-in-depth.
+func sanitizeErr(err error) string {
+	if err == nil {
+		return ""
+	}
+	return sanitizeForDisplay(err.Error())
 }
 
 // ---------- Toast notifications ----------
@@ -443,7 +466,7 @@ func (h *Handler) handleDashboardFragment(w http.ResponseWriter, r *http.Request
 
 	data := map[string]any{
 		"Node":    node,
-		"NodeErr": nodeErr,
+		"NodeErr": sanitizeErr(nodeErr),
 	}
 	h.renderFragment(w, "frag-dashboard.html", data)
 }
@@ -509,6 +532,9 @@ func (h *Handler) handleUpdateFragment(w http.ResponseWriter, r *http.Request) {
 		runStatus.Log = runStatus.Log[:cut] + "\n…(truncated)"
 	}
 
+	// Sanitize log content: strip control/BiDi chars but keep newlines/tabs.
+	runStatus.Log = sanitizeBody(runStatus.Log)
+
 	// Compute counts from the pending list.
 	securityCount := 0
 	for _, p := range pending {
@@ -522,10 +548,10 @@ func (h *Handler) handleUpdateFragment(w http.ResponseWriter, r *http.Request) {
 		"PendingCount":  len(pending),
 		"SecurityCount": securityCount,
 		"RunStatus":     runStatus,
-		"StatusErr":     statusErr,
-		"LogsErr":       logsErr,
+		"StatusErr":     sanitizeErr(statusErr),
+		"LogsErr":       sanitizeErr(logsErr),
 		"Config":        config,
-		"ConfigErr":     configErr,
+		"ConfigErr":     sanitizeErr(configErr),
 	}
 	h.renderFragment(w, "frag-update.html", data)
 }
@@ -693,7 +719,7 @@ func (h *Handler) handleProgress(w http.ResponseWriter, r *http.Request) {
 		"Status":     run.Status,
 		"StartedAt":  run.StartedAt,
 		"Duration":   run.Duration,
-		"Error":      run.Error,
+		"Error":      sanitizeForDisplay(run.Error),
 		"ReturnURL":  returnURL,
 		"RetryCount": strconv.Itoa(retryCount),
 	}
@@ -749,7 +775,7 @@ func (h *Handler) handleHistoryFragment(w http.ResponseWriter, r *http.Request) 
 	}
 	if err != nil {
 		slog.Error("web: failed to fetch job runs", "job", jobID, "error", err)
-		data["Error"] = err.Error()
+		data["Error"] = sanitizeForDisplay(err.Error())
 	} else {
 		data["Runs"] = runs
 		data["HasPrev"] = offset > 0
@@ -948,11 +974,11 @@ func (h *Handler) handleNetworkFragment(w http.ResponseWriter, r *http.Request) 
 
 	data := map[string]any{
 		"Ifaces":    ifaces,
-		"IfaceErr":  ifaceErr,
+		"IfaceErr":  sanitizeErr(ifaceErr),
 		"Status":    status,
-		"StatusErr": statusErr,
+		"StatusErr": sanitizeErr(statusErr),
 		"DNS":       dns,
-		"DNSErr":    dnsErr,
+		"DNSErr":    sanitizeErr(dnsErr),
 	}
 	h.renderFragment(w, "frag-network.html", data)
 }

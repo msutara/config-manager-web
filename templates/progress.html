@@ -14,13 +14,13 @@
 </div>
 {{ else if eq .Status "failed" }}
 <div class="alert alert-error">
-    {{ .JobID }} failed{{ if .Duration }} after {{ .Duration }}{{ end }}{{ if .Error }}: {{ .Error }}{{ end }}.
+    {{ .JobID }} failed{{ if .Duration }} after {{ .Duration }}{{ end }}{{ if .Error }}: {{ .Error | sanitize }}{{ end }}.
 </div>
 {{ else if eq .Status "error" }}
 <div class="alert alert-error"
      hx-get="/progress?job={{ urlquery .JobID }}&amp;return={{ urlquery .ReturnURL }}&amp;retry={{ .RetryCount }}"
      hx-trigger="every 5s" hx-swap="outerHTML">
-    Failed to check job status{{ if .Error }}: {{ .Error }}{{ end }} (retrying…)
+    Failed to check job status{{ if .Error }}: {{ .Error | sanitize }}{{ end }} (retrying…)
 </div>
 {{ else }}
 <div class="alert alert-error">No run data available for {{ .JobID }}.</div>

@@ -43,7 +43,7 @@ func (h *Handler) handleLogin(w http.ResponseWriter, r *http.Request) {
 	}
 
 	data := map[string]any{
-		"Error": r.URL.Query().Get("error"),
+		"Error": sanitizeForDisplay(r.URL.Query().Get("error")),
 	}
 	h.render(w, "login.html", data)
 }
