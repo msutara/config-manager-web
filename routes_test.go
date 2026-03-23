@@ -4694,3 +4694,82 @@ func TestNetworkSetDNS_InvalidIP(t *testing.T) {
 		t.Fatal("should render error alert for invalid DNS IP")
 	}
 }
+
+// ---------- sanitizeForDisplay / safeHTML ----------
+
+func TestSanitizeForDisplay(t *testing.T) {
+	tests := []struct {
+		name, in, want string
+	}{
+		{"clean", "Hello World", "Hello World"},
+		{"null byte", "abc\x00def", "abcdef"},
+		{"newline", "line1\nline2", "line1line2"},
+		{"ansi escape", "bad\x1b[31mred\x1b[0m", "bad[31mred[0m"},
+		{"C1 controls", "abc\u0085\u008A\u009Bdef", "abcdef"},
+		{"tab", "col1\tcol2", "col1col2"},
+		{"empty", "", ""},
+		{"bidi LRO", "safe\u202Dtext", "safetext"},
+		{"bidi RLO", "safe\u202Eevil", "safeevil"},
+		{"bidi LRE", "test\u202Adata", "testdata"},
+		{"bidi RLE", "test\u202Bdata", "testdata"},
+		{"bidi PDF", "test\u202Cdata", "testdata"},
+		{"bidi LRI", "test\u2066data", "testdata"},
+		{"bidi RLI", "test\u2067data", "testdata"},
+		{"bidi FSI", "test\u2068data", "testdata"},
+		{"bidi PDI", "test\u2069data", "testdata"},
+		{"strips LRM", "hello\u200Eworld", "helloworld"},
+		{"strips RLM", "hello\u200Fworld", "helloworld"},
+		{"strips ALM", "hello\u061Cworld", "helloworld"},
+		{"preserves ZWJ in emoji", "\U0001F468\u200D\U0001F4BB", "\U0001F468\u200D\U0001F4BB"},
+		{"only controls", "\x00\x1f\u202E\u0085", ""},
+		{"invalid utf8 replaced", "a\xed\xa0\x80b", "a\ufffd\ufffd\ufffdb"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := sanitizeForDisplay(tt.in)
+			if got != tt.want {
+				t.Errorf("sanitizeForDisplay(%q) = %q, want %q", tt.in, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestSafeHTML(t *testing.T) {
+	tests := []struct {
+		name, in, want string
+	}{
+		{"clean", "Hello", "Hello"},
+		{"html entities", "<script>alert('xss')</script>", "&lt;script&gt;alert(&#39;xss&#39;)&lt;/script&gt;"},
+		{"bidi + html", "\u202E<b>evil</b>", "&lt;b&gt;evil&lt;/b&gt;"},
+		{"C1 + ampersand", "a\u0085&b", "a&amp;b"},
+		{"null + quote", "a\x00\"b", "a&#34;b"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := safeHTML(tt.in)
+			if got != tt.want {
+				t.Errorf("safeHTML(%q) = %q, want %q", tt.in, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestIsBiDiControl(t *testing.T) {
+	bidiChars := []rune{
+		'\u200E', '\u200F', '\u061C',
+		'\u202A', '\u202B', '\u202C', '\u202D', '\u202E',
+		'\u2066', '\u2067', '\u2068', '\u2069',
+	}
+	for _, r := range bidiChars {
+		if !isBiDiControl(r) {
+			t.Errorf("isBiDiControl(%U) = false, want true", r)
+		}
+	}
+
+	nonBidi := []rune{'A', '0', ' ', '\u20AC', '\u200D'}
+	for _, r := range nonBidi {
+		if isBiDiControl(r) {
+			t.Errorf("isBiDiControl(%U) = true, want false", r)
+		}
+	}
+}

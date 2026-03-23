@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"html"
 	"log/slog"
 	"net/http"
 	"regexp"
@@ -42,11 +41,11 @@ func parseFormLimited(w http.ResponseWriter, r *http.Request) error {
 // If the error is an *APIError, only the message (not the internal path) is shown.
 func (h *Handler) writeNetworkError(w http.ResponseWriter, title string, err error) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	safeErr := html.EscapeString(err.Error())
+	safeErr := safeHTML(err.Error())
 	toastLevel := "error"
 	var apiErr *APIError
 	if errors.As(err, &apiErr) {
-		safeErr = html.EscapeString(apiErr.Message)
+		safeErr = safeHTML(apiErr.Message)
 		if apiErr.StatusCode == http.StatusForbidden {
 			toastLevel = "warning"
 			title = "Interface protected by policy"
@@ -57,7 +56,7 @@ func (h *Handler) writeNetworkError(w http.ResponseWriter, title string, err err
 		toastLevel = "error"
 	}
 	_, _ = w.Write([]byte(`<div class="alert alert-` + toastLevel + `"><strong>` + //nolint:errcheck // HTTP write
-		html.EscapeString(title) + `</strong>` +
+		safeHTML(title) + `</strong>` +
 		`<details class="error-details"><summary>Show details</summary>` +
 		`<pre>` + safeErr + `</pre></details></div>` +
 		toastOOB(toastLevel, title)))

@@ -20,6 +20,36 @@ import (
 	"github.com/go-chi/chi/v5"
 )
 
+// ---------- Sanitization ----------
+
+// isBiDiControl returns true for Unicode BiDi control characters
+// (embeddings, overrides, isolates, marks, and ALM).
+func isBiDiControl(r rune) bool {
+	return unicode.Is(unicode.Bidi_Control, r)
+}
+
+// sanitizeForDisplay strips C0 (U+0000–U+001F, U+007F), C1 (U+0080–U+009F),
+// and BiDi override/embedding/isolate characters from untrusted text before
+// rendering in HTML. html.EscapeString alone does not strip these — control
+// chars and BiDi overrides pass through and may render in the browser.
+// ZWJ and other format characters needed for emoji sequences are preserved.
+func sanitizeForDisplay(s string) string {
+	var b strings.Builder
+	b.Grow(len(s))
+	for _, r := range s {
+		if !unicode.IsControl(r) && !isBiDiControl(r) {
+			_, _ = b.WriteRune(r) //nolint:errcheck // strings.Builder.WriteRune never fails
+		}
+	}
+	return b.String()
+}
+
+// safeHTML strips control/BiDi characters and then HTML-escapes for safe
+// interpolation into HTML output.
+func safeHTML(s string) string {
+	return html.EscapeString(sanitizeForDisplay(s))
+}
+
 // ---------- Toast notifications ----------
 
 // Toast represents a brief notification shown at the top of the viewport.
@@ -40,7 +70,7 @@ func toastOOB(level, message string) string {
 	if level == "error" {
 		role = "alert"
 	}
-	safeMsg := html.EscapeString(message)
+	safeMsg := safeHTML(message)
 	return `<output class="toast toast-` + level + `" role="` + role +
 		`" hx-swap-oob="afterbegin:#toast-container">` + safeMsg + `</output>`
 }
@@ -362,7 +392,7 @@ func (h *Handler) handleGenericAction(w http.ResponseWriter, r *http.Request) {
 		var safeErr string
 		var apiErr *APIError
 		if errors.As(err, &apiErr) {
-			safeErr = html.EscapeString(apiErr.Message)
+			safeErr = safeHTML(apiErr.Message)
 		} else {
 			// Show only the terminal error reason (e.g. "connection refused",
 			// "i/o timeout") without leaking internal IPs/ports from transport errors.
@@ -370,7 +400,7 @@ func (h *Handler) handleGenericAction(w http.ResponseWriter, r *http.Request) {
 			if idx := strings.LastIndex(msg, ": "); idx >= 0 {
 				msg = msg[idx+2:]
 			}
-			safeErr = html.EscapeString(msg)
+			safeErr = safeHTML(msg)
 		}
 		//nolint:errcheck // HTTP response write
 		_, _ = w.Write([]byte(`<div class="alert alert-error"><strong>Action failed</strong>` +
@@ -535,7 +565,7 @@ func (h *Handler) handleUpdateRun(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		slog.Error("web: failed to trigger update", "type", updateType, "error", err)
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		safeErr := html.EscapeString(err.Error())
+		safeErr := safeHTML(err.Error())
 		//nolint:errcheck // HTTP response write — no recovery possible
 		_, _ = w.Write([]byte(`<div class="alert alert-error"><strong>Failed to start ` +
 			updateType + ` update</strong>` +
@@ -571,7 +601,7 @@ func (h *Handler) handleProgress(w http.ResponseWriter, r *http.Request) {
 	if !validJobID.MatchString(jobID) {
 		slog.Warn("web: invalid job id in progress poll", "job", jobID, "remote_addr", r.RemoteAddr)
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		safeJobID := html.EscapeString(jobID)
+		safeJobID := safeHTML(jobID)
 		//nolint:errcheck // HTTP response write — no recovery possible
 		_, _ = w.Write([]byte(
 			`<div class="alert alert-error">Invalid job ID: ` + safeJobID + `</div>`))
@@ -783,7 +813,7 @@ func (h *Handler) handleUpdateSettings(w http.ResponseWriter, r *http.Request) {
 	if schedule != origSchedule {
 		if err := validateWebCronExpr(schedule); err != nil {
 			w.Header().Set("Content-Type", "text/html; charset=utf-8")
-			safeErr := html.EscapeString(err.Error())
+			safeErr := safeHTML(err.Error())
 			//nolint:errcheck // HTTP write
 			_, _ = w.Write([]byte(`<div class="alert alert-error">` + safeErr + `</div>` +
 				toastOOB("error", "Invalid schedule")))
@@ -825,7 +855,7 @@ func (h *Handler) handleUpdateSettings(w http.ResponseWriter, r *http.Request) {
 		}
 		updatedKeys = append(updatedKeys, c.key)
 		if res != nil && res.Warning != "" {
-			warnings = append(warnings, html.EscapeString(res.Warning))
+			warnings = append(warnings, safeHTML(res.Warning))
 		}
 	}
 
